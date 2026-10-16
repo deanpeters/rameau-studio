@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import re
 import shutil
 import sys
 import traceback
@@ -73,19 +74,52 @@ class Job(QRunnable):
             self.signals.failed.emit(f"{e}\n\n{traceback.format_exc(limit=3)}")
 
 
-def _fill_model_box(box: QComboBox, current: str, models=None) -> None:
-    """Fill a model dropdown: live models if known, else the built-in list; keep the current choice."""
+def _fill_model_box(box: QComboBox, current: str, models=None, provider: str = "anthropic") -> None:
+    """Fill a model dropdown: live models if known, else a built-in list; keep the current choice."""
     from . import ai
 
     box.blockSignals(True)
     box.clear()
-    for model_id, label in (models or ai.FALLBACK_MODELS):
+    fallback = ai.FALLBACK_MODELS if provider == ai.ANTHROPIC else []
+    for model_id, label in (models or fallback):
         box.addItem(f"{label}  ·  {model_id}" if label != model_id else model_id, model_id)
-    i = box.findData(current)
-    if i < 0:
-        box.addItem(current, current)
-        i = box.count() - 1
-    box.setCurrentIndex(i)
+    if current:
+        i = box.findData(current)
+        if i < 0:
+            box.addItem(current, current)
+            i = box.count() - 1
+        box.setCurrentIndex(i)
+    elif box.count() == 0:
+        box.setEditText("")
+        box.lineEdit().setPlaceholderText("Loading models… (or type a model name)")
+    box.blockSignals(False)
+
+
+def _profile_label(name: str) -> str:
+    from . import ai
+
+    if name in (ai.ENV_ANTHROPIC, ai.ENV_OPENAI):
+        return name
+    try:
+        info = ai.profile_info(name)
+    except ai.AIUnavailable:
+        return name
+    provider = "OpenAI" if info["provider"] == ai.OPENAI else "Anthropic"
+    return f"{name}  ({provider}{', ' + info['base_url'] if info.get('base_url') else ''})"
+
+
+def _fill_profile_box(box: QComboBox, select: str | None, empty: str) -> None:
+    from . import ai
+
+    box.blockSignals(True)
+    box.clear()
+    names = ai.list_profiles()
+    for n in names:
+        box.addItem(_profile_label(n), n)
+    if not names:
+        box.addItem(empty, None)
+    if select in names:
+        box.setCurrentIndex(names.index(select))
     box.blockSignals(False)
 
 
@@ -97,7 +131,7 @@ def _model_from_box(box: QComboBox) -> str:
 
 
 class AISettingsDialog(QDialog):
-    """Manage named API keys (stored in the OS keychain) and pick the active key and model."""
+    """Manage named API keys (stored in the OS keychain) for Anthropic and OpenAI, and pick key and model."""
 
     def __init__(self, parent: "MainWindow") -> None:
         from . import ai
@@ -105,14 +139,17 @@ class AISettingsDialog(QDialog):
         super().__init__(parent)
         self.main = parent
         self.setWindowTitle("AI settings")
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(640)
         form = QFormLayout(self)
-        form.addRow(QLabel("Keys are stored in your system keychain, never in Rameau's files. "
-                           "The ANTHROPIC_API_KEY environment variable appears as its own entry."))
+        intro = QLabel("Keys are stored in your system keychain, never in Rameau's files. ANTHROPIC_API_KEY and "
+                       "OPENAI_API_KEY environment variables appear as their own entries. Each key remembers "
+                       "its own model.")
+        intro.setWordWrap(True)
+        form.addRow(intro)
 
         row = QHBoxLayout()
         self.profiles = QComboBox()
-        self.profiles.setMinimumWidth(240)
+        self.profiles.setMinimumWidth(300)
         row.addWidget(self.profiles, 1)
         remove = QPushButton("Remove")
         remove.clicked.connect(self._remove)
@@ -120,17 +157,29 @@ class AISettingsDialog(QDialog):
         form.addRow("Use API key", row)
 
         add_row = QHBoxLayout()
+        self.provider = QComboBox()
+        self.provider.addItem("Anthropic (Claude)", ai.ANTHROPIC)
+        self.provider.addItem("OpenAI or compatible", ai.OPENAI)
+        self.provider.currentIndexChanged.connect(self._provider_changed)
         self.new_name = QLineEdit()
         self.new_name.setPlaceholderText("Name, e.g. Personal")
         self.new_key = QLineEdit()
         self.new_key.setEchoMode(QLineEdit.Password)
         self.new_key.setPlaceholderText("sk-ant-…")
-        add = QPushButton("Add key")
-        add.clicked.connect(self._add)
+        add_row.addWidget(self.provider)
         add_row.addWidget(self.new_name, 1)
         add_row.addWidget(self.new_key, 2)
-        add_row.addWidget(add)
         form.addRow("Add API key", add_row)
+        url_row = QHBoxLayout()
+        self.base_url = QLineEdit()
+        self.base_url.setPlaceholderText("Optional server address for OpenAI-compatible services, e.g. "
+                                         "http://localhost:11434/v1 (Ollama)")
+        self.base_url.setEnabled(False)
+        add = QPushButton("Add key")
+        add.clicked.connect(self._add)
+        url_row.addWidget(self.base_url, 1)
+        url_row.addWidget(add)
+        form.addRow("Server", url_row)
 
         mrow = QHBoxLayout()
         self.model = QComboBox()
@@ -142,7 +191,8 @@ class AISettingsDialog(QDialog):
         self.refresh.clicked.connect(self._load_models)
         mrow.addWidget(self.refresh)
         form.addRow("Model", mrow)
-        self.status = QLabel("Default model: claude-haiku-5-5 (fast, inexpensive). You can also type any model name.")
+        self.status = QLabel("Anthropic default: claude-haiku-5-5. OpenAI default: the newest 'mini' chat model. "
+                             "You can also type any model name.")
         self.status.setWordWrap(True)
         form.addRow(self.status)
 
@@ -152,40 +202,56 @@ class AISettingsDialog(QDialog):
         form.addRow(buttons)
 
         self._fill_profiles(ai.active_profile())
-        _fill_model_box(self.model, ai.model_name(), parent._model_cache.get(ai.active_profile()))
-        self.profiles.currentTextChanged.connect(lambda _: self._load_models())
+        self._show_models(ai.active_profile())
+        self.profiles.currentIndexChanged.connect(lambda _: self._profile_selected())
+
+    def _current(self) -> str | None:
+        return self.profiles.currentData()
 
     def _fill_profiles(self, select: str | None) -> None:
+        _fill_profile_box(self.profiles, select, "(no keys yet: add one below)")
+
+    def _provider_changed(self) -> None:
         from . import ai
 
-        self.profiles.blockSignals(True)
-        self.profiles.clear()
-        names = ai.list_profiles()
-        self.profiles.addItems(names or ["(no keys yet: add one below)"])
-        if select in names:
-            self.profiles.setCurrentText(select)
-        self.profiles.blockSignals(False)
+        openai = self.provider.currentData() == ai.OPENAI
+        self.base_url.setEnabled(openai)
+        self.new_key.setPlaceholderText("sk-… (leave empty for a local server)" if openai else "sk-ant-…")
+
+    def _show_models(self, name: str | None) -> None:
+        from . import ai
+
+        if not name:
+            return
+        _fill_model_box(self.model, ai.model_name(name), self.main._model_cache.get(name), ai.provider_of(name))
+
+    def _profile_selected(self) -> None:
+        self._show_models(self._current())
+        self._load_models()
 
     def _add(self) -> None:
         from . import ai
 
         try:
-            ai.add_profile(self.new_name.text(), self.new_key.text())
+            ai.add_profile(self.new_name.text(), self.new_key.text(), provider=self.provider.currentData(),
+                           base_url=self.base_url.text().strip() or None)
         except Exception as e:
             QMessageBox.warning(self, "AI settings", str(e))
             return
         name = self.new_name.text().strip()
         self.new_name.clear()
         self.new_key.clear()
+        self.base_url.clear()
         self._fill_profiles(name)
+        self._show_models(name)
         self.status.setText(f"Saved '{name}' to your keychain. Checking it…")
         self._load_models()
 
     def _remove(self) -> None:
         from . import ai
 
-        name = self.profiles.currentText()
-        if name not in ai.list_profiles():
+        name = self._current()
+        if not name:
             return
         try:
             ai.remove_profile(name)
@@ -193,13 +259,14 @@ class AISettingsDialog(QDialog):
             QMessageBox.information(self, "AI settings", str(e))
             return
         self._fill_profiles(ai.active_profile())
+        self._show_models(ai.active_profile())
         self.status.setText(f"Removed '{name}'.")
 
     def _load_models(self) -> None:
         from . import ai
 
-        name = self.profiles.currentText()
-        if name not in ai.list_profiles():
+        name = self._current()
+        if not name:
             return
         self.status.setText(f"Loading the models available to '{name}'…")
         job = Job(ai.list_models, name)
@@ -208,18 +275,27 @@ class AISettingsDialog(QDialog):
         self.main.start_job(job)
 
     def _models_ready(self, name: str, models) -> None:
+        from . import ai
+
         self.main._model_cache[name] = models
-        current = _model_from_box(self.model)
-        _fill_model_box(self.model, current, models)
+        if name != self._current():
+            return
+        current = _model_from_box(self.model) or ai.model_name(name)
+        if not current and models:
+            undated = [m for m, _ in models if not re.search(r"-\d{4}-\d{2}-\d{2}$", m)]
+            current = (undated or [models[0][0]])[0]
+        _fill_model_box(self.model, current, models, ai.provider_of(name))
         self.status.setText(f"'{name}' works: {len(models)} models available.")
 
     def _save(self) -> None:
         from . import ai
 
-        name = self.profiles.currentText()
-        if name in ai.list_profiles():
+        name = self._current()
+        if name:
             ai.set_active_profile(name)
-        ai.set_model(_model_from_box(self.model))
+            model = _model_from_box(self.model)
+            if model:
+                ai.set_model(model, name)
         self.accept()
 
 
@@ -430,7 +506,7 @@ class MainWindow(QMainWindow):
         ml.setContentsMargins(0, 0, 0, 0)
         ml.addWidget(self.melody_edit, 1)
         ai_btn = QPushButton("✨ Compose a melody with AI…")
-        ai_btn.setToolTip("Optional: Claude writes a melody from your description (needs an API key)")
+        ai_btn.setToolTip("Optional: An AI model writes a melody from your description (needs an Anthropic or OpenAI key)")
         ai_btn.clicked.connect(self._ai_compose)
         ml.addWidget(ai_btn)
         left.addTab(mel_page, "Melody")
@@ -493,9 +569,10 @@ class MainWindow(QMainWindow):
         bar.addWidget(QLabel("API key"))
         self.ai_profile_box = QComboBox()
         self.ai_profile_box.setMinimumWidth(200)
-        self.ai_profile_box.setToolTip("Which saved Anthropic API key to use. 'Environment variable' means "
-                                       "ANTHROPIC_API_KEY.")
-        self.ai_profile_box.currentTextChanged.connect(self._profile_switched)
+        self.ai_profile_box.setToolTip("Which saved API key (Anthropic or OpenAI) to use. Environment entries "
+                                       "come from ANTHROPIC_API_KEY / OPENAI_API_KEY.")
+        self.ai_profile_box.currentIndexChanged.connect(
+            lambda _: self._profile_switched(self.ai_profile_box.currentData()))
         bar.addWidget(self.ai_profile_box)
         bar.addWidget(QLabel("Model"))
         self.ai_model_box = QComboBox()
@@ -514,7 +591,7 @@ class MainWindow(QMainWindow):
         self.tutor_log = QTextBrowser()
         self.tutor_log.setHtml("<p><b>Ask the tutor</b> about the piece on screen: <i>Why does Bach use V/V here? "
                                "What would Palestrina do differently? Why is this cadence called authentic?</i></p>"
-                               "<p style='color:gray'>Optional AI mode: needs an Anthropic API key "
+                               "<p style='color:gray'>Optional AI mode: needs an Anthropic or OpenAI API key "
                                "(AI settings…). Answers are grounded in Rameau's own analysis.</p>")
         tl.addWidget(self.tutor_log, 1)
         qrow = QHBoxLayout()
@@ -800,32 +877,30 @@ class MainWindow(QMainWindow):
     def _refresh_ai_bar(self) -> None:
         from . import ai
 
-        self.ai_profile_box.blockSignals(True)
-        self.ai_profile_box.clear()
-        profiles = ai.list_profiles()
-        if profiles:
-            self.ai_profile_box.addItems(profiles)
-            self.ai_profile_box.setCurrentText(ai.active_profile())
-        else:
-            self.ai_profile_box.addItem("No key: open AI settings…")
-        self.ai_profile_box.blockSignals(False)
-        _fill_model_box(self.ai_model_box, ai.model_name(), self._model_cache.get(ai.active_profile()))
+        _fill_profile_box(self.ai_profile_box, ai.active_profile(), "No key: open Manage keys…")
+        active = ai.active_profile()
+        if active:
+            _fill_model_box(self.ai_model_box, ai.model_name(active), self._model_cache.get(active),
+                            ai.provider_of(active))
 
-    def _profile_switched(self, name: str) -> None:
+    def _profile_switched(self, name: str | None) -> None:
         from . import ai
 
-        if name in ai.list_profiles():
+        if name and name in ai.list_profiles():
             ai.set_active_profile(name)
             self.statusBar().showMessage(f"AI key: {name}")
+            _fill_model_box(self.ai_model_box, ai.model_name(name), self._model_cache.get(name),
+                            ai.provider_of(name))
             self._load_models(name)
 
     def _model_switched(self) -> None:
         from . import ai
 
         model = _model_from_box(self.ai_model_box)
-        if model and model != ai.model_name():
-            ai.set_model(model)
-            self.statusBar().showMessage(f"AI model: {model}")
+        active = ai.active_profile()
+        if model and active and model != ai.model_name(active):
+            ai.set_model(model, active)
+            self.statusBar().showMessage(f"AI model for {active}: {model}")
 
     def _load_models(self, profile: str | None = None) -> None:
         """Fetch the models this key can use (free API call) and refresh the dropdown."""
@@ -845,7 +920,11 @@ class MainWindow(QMainWindow):
 
         self._model_cache[profile] = models
         if profile == ai.active_profile():
-            _fill_model_box(self.ai_model_box, ai.model_name(), models)
+            current = ai.model_name(profile)
+            if not current and models:
+                undated = [m for m, _ in models if not re.search(r"-\d{4}-\d{2}-\d{2}$", m)]
+                current = (undated or [models[0][0]])[0]
+            _fill_model_box(self.ai_model_box, current, models, ai.provider_of(profile))
 
     def _ai_compose(self) -> None:
         from . import ai

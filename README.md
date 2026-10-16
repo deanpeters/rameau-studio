@@ -71,16 +71,18 @@ SoundFont. Put [GeneralUser GS](https://schristiancollins.com/generaluser.php) i
 
 ## AI mode (optional)
 
-Rameau works fully without AI. To enable the tutor and AI composer, either:
+Rameau works fully without AI. The tutor and AI composer work with **Anthropic (Claude)** or
+**OpenAI**, or any OpenAI-compatible server (OpenRouter, a local Ollama or LM Studio) via a server
+address. To enable them, either:
 
-- set the `ANTHROPIC_API_KEY` environment variable, or
-- open **AI settings…** in the app and add one or more named keys (e.g. *Personal*, *Work*). Each
-  is stored in your operating system's keychain (macOS Keychain, Windows Credential Manager,
+- set `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY` (each appears as its own entry), or
+- open **AI settings…** and add named keys (e.g. *Personal*, *Work*), choosing the provider for each.
+  Keys are stored in your operating system's keychain (macOS Keychain, Windows Credential Manager,
   Linux Secret Service), never in a file.
 
-Switch keys and models from the **Ask the tutor** tab or AI settings. The model list is loaded live
-from Anthropic for the selected key (default `claude-haiku-5-5`); you can also type any model name,
-or set `RAMEAU_AI_MODEL`.
+Switch keys and models from the **Ask the tutor** tab or AI settings. Each key remembers its own
+model; the list is loaded live for the selected key. Defaults: `claude-haiku-5-5` for Anthropic,
+the newest GPT "mini" model for OpenAI. You can also type any model name, or set `RAMEAU_AI_MODEL`.
 
 ## How it works
 
