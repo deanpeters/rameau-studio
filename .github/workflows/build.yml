@@ -43,9 +43,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $rel = Invoke-RestMethod https://api.github.com/repos/FluidSynth/fluidsynth/releases/latest
-          $asset = $rel.assets | Where-Object { $_.name -like "*win10-x64*.zip" } | Select-Object -First 1
-          Invoke-WebRequest $asset.browser_download_url -OutFile fluidsynth.zip
+          # Pinned version: repeatable builds, and no GitHub API call (shared runners hit its rate limit).
+          $version = "2.6.1"
+          Invoke-WebRequest "https://github.com/FluidSynth/fluidsynth/releases/download/v$version/fluidsynth-v$version-win10-x64-cpp11.zip" -OutFile fluidsynth.zip
           Expand-Archive fluidsynth.zip -DestinationPath packaging/assets/fluidsynth-tmp
           $bin = Get-ChildItem packaging/assets/fluidsynth-tmp -Recurse -Filter fluidsynth.exe | Select-Object -First 1
           New-Item -ItemType Directory -Force packaging/assets/fluidsynth | Out-Null
