@@ -195,8 +195,11 @@ footer {
 .sounds select { border: 1px solid var(--rule); background: var(--raised); color: var(--ink); border-radius: 999px;
   padding: 4px 10px; font: inherit; font-size: 13px; }
 .dials { display: flex; gap: 18px; }
-.dial { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: ns-resize; user-select: none; }
-.dial svg { width: 40px; height: 40px; }
+.dial { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: grab; user-select: none;
+  padding: 4px 8px; margin: -4px -8px; border-radius: 10px; outline: none; touch-action: none; transition: background .15s; }
+.dial:hover, .dial:focus-visible, .dial.turning { background: var(--raised); }
+.dial.turning { cursor: grabbing; }
+.dial svg { width: 46px; height: 46px; pointer-events: none; }
 .dial .lbl { font-size: 11px; color: var(--muted); }
 .dial .val { font-size: 10px; color: var(--faint); height: 12px; }
 

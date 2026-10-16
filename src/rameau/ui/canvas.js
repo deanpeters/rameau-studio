@@ -177,25 +177,58 @@ function renderDials(m) {
       const d = document.createElement("div");
       d.className = "dial";
       d.dataset.key = key;
-      d.title = `${tip}. Drag up or down; double-click to reset.`;
+      d.title = `${tip}. Drag up/right or scroll to turn (Shift for fine); double-click to reset.`;
       d.innerHTML = `<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="15" fill="none" stroke="var(--rule)" stroke-width="4"
         stroke-dasharray="70.7 94.2" transform="rotate(135 20 20)"/><circle class="arc" cx="20" cy="20" r="15" fill="none"
         stroke="var(--accent)" stroke-width="4" stroke-linecap="round" stroke-dasharray="0 94.2" transform="rotate(135 20 20)"/>
         <circle class="knob" cx="20" cy="20" r="2.6" fill="var(--ink)"/></svg><span class="lbl">${label}</span><span class="val"></span>`;
       d.dataset.lo = lo; d.dataset.hi = hi;
-      d.onpointerdown = (ev) => { dragging = {d, y: ev.clientY, v: +d.dataset.value}; d.setPointerCapture(ev.pointerId); };
+      d.tabIndex = 0;
+      const turn = (v) => { v = Math.max(0, Math.min(1, v)); setDial(d, v); sendMacro(key, v); };
+      d.onpointerdown = (ev) => {
+        ev.preventDefault();
+        d.focus();
+        dragging = {d, x: ev.clientX, y: ev.clientY, v: +d.dataset.value};
+        d.classList.add("turning");
+        d.setPointerCapture(ev.pointerId);
+      };
       d.onpointermove = (ev) => {
         if (!dragging || dragging.d !== d) return;
-        const v = Math.max(0, Math.min(1, dragging.v + (dragging.y - ev.clientY) / 160));
-        setDial(d, v);
-        bridge.setMacro(key, v);
+        // Up or right turns it up; about 60px covers the whole range (Shift for fine control).
+        const moved = (ev.clientX - dragging.x) - (ev.clientY - dragging.y);
+        turn(dragging.v + moved / (ev.shiftKey ? 300 : 60));
       };
-      d.onpointerup = () => { dragging = null; };
-      d.ondblclick = () => { const v = key === "space" ? 0.35 : (key === "character" ? 0 : 0.5); setDial(d, v); bridge.setMacro(key, v); };
+      const end = () => { if (dragging && dragging.d === d) { dragging = null; d.classList.remove("turning"); flushMacro(); } };
+      d.onpointerup = end; d.onpointercancel = end; d.onlostpointercapture = end;
+      d.onwheel = (ev) => {
+        ev.preventDefault();
+        const step = (Math.abs(ev.deltaY) >= Math.abs(ev.deltaX) ? -ev.deltaY : ev.deltaX) / (ev.deltaMode ? 3 : 100);
+        turn(+d.dataset.value + Math.max(-0.1, Math.min(0.1, step * 0.05)));
+      };
+      d.onkeydown = (ev) => {
+        const k = {ArrowUp: 0.05, ArrowRight: 0.05, ArrowDown: -0.05, ArrowLeft: -0.05, PageUp: 0.2, PageDown: -0.2}[ev.key];
+        if (k === undefined) return;
+        ev.preventDefault(); ev.stopPropagation();
+        turn(+d.dataset.value + k);
+      };
+      d.onblur = () => setDial(d, +d.dataset.value);
+      d.ondblclick = () => turn(key === "space" ? 0.35 : (key === "character" ? 0 : 0.5));
       box.appendChild(d);
     });
   }
-  [...box.children].forEach((d) => { if (!dragging || dragging.d !== d) setDial(d, m[d.dataset.key] ?? 0.5); });
+  [...box.children].forEach((d) => {
+    if ((!dragging || dragging.d !== d) && !(pendingMacro && pendingMacro[0] === d.dataset.key)) setDial(d, m[d.dataset.key] ?? 0.5);
+  });
+}
+// Send dial moves at most once per frame; the app batches them again before re-running the music.
+let pendingMacro = null, macroFrame = 0;
+function sendMacro(key, v) {
+  pendingMacro = [key, v];
+  if (!macroFrame) macroFrame = requestAnimationFrame(flushMacro);
+}
+function flushMacro() {
+  if (macroFrame) { cancelAnimationFrame(macroFrame); macroFrame = 0; }
+  if (pendingMacro) { bridge.setMacro(pendingMacro[0], pendingMacro[1]); pendingMacro = null; }
 }
 function setDial(d, v) {
   d.dataset.value = v;
@@ -204,7 +237,8 @@ function setDial(d, v) {
   const k = d.querySelector(".knob");
   k.setAttribute("cx", (20 + 9 * Math.cos(a)).toFixed(1));
   k.setAttribute("cy", (20 + 9 * Math.sin(a)).toFixed(1));
-  d.querySelector(".val").textContent = v < 0.2 ? d.dataset.lo : (v > 0.8 ? d.dataset.hi : "");
+  d.querySelector(".val").textContent = d.classList.contains("turning") || d === document.activeElement
+    ? `${Math.round(v * 100)}%` : (v < 0.2 ? d.dataset.lo : (v > 0.8 ? d.dataset.hi : ""));
 }
 
 // ------------------------------------------------------------------ tune menu
