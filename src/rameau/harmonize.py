@@ -136,10 +136,12 @@ def _local(stats: ModeStats, chord: str, b: Beat, k: m21key.Key, is_last: bool, 
 
 def harmonize(melody, style: StyleModel, key: m21key.Key | str | None = None,
               locks: dict[int, str] | None = None, n_alternatives: int = 3,
-              lock_reason: str | None = None) -> Harmonization:
+              lock_reason: str | None = None, adventure: float = 0.0, seed: int = 1) -> Harmonization:
     """Harmonize ``melody`` (a music21 Part) in ``style``.
 
     ``locks`` maps beat index -> roman numeral the user wants fixed; the rest is re-solved around it.
+    ``adventure`` (0-1): 0 picks the single most likely progression (safe, sometimes bland); higher values
+    sample from the style's own habits, so less obvious chords the style really uses can appear.
     """
     k = m21key.Key(key) if isinstance(key, str) else key or detect_key(melody)
     stats = style.mode(k.mode)
@@ -206,6 +208,42 @@ def harmonize(melody, style: StyleModel, key: m21key.Key | str | None = None,
     total = lse(fwd[-1])
     posteriors = [[math.exp(fwd[t][j] + bwd[t][j] - total) for j in range(n)] for t in range(T)]
 
+    safest = [vocab[j] for j in path]
+    if adventure > 0:
+        import random
+
+        rng = random.Random(seed)
+        # Temperature: below 1 sharpens toward the safest path (small departures), above 1 flattens the odds.
+        tau = 0.35 + 1.15 * max(0.0, min(1.0, adventure))
+        # Adventure varies the journey, not the arrivals: cadences keep the style's safest choice.
+        sl = []
+        for t in range(T):
+            row = [x / tau for x in local[t]]
+            after_end = t > max((i for i, b in enumerate(beats) if b.phrase_end), default=T)
+            if (beats[t].phrase_end or after_end) and t not in locks:
+                keep = vocab.index(safest[t])
+                row = [x if j == keep else -1e9 for j, x in enumerate(row)]
+            sl.append(row)
+        tf = [[log(stats.p_start(c)) / tau + sl[0][j] for j, c in enumerate(vocab)]]
+        for t in range(1, T):
+            tf.append([lse([tf[t - 1][i] + tr(t, i, j) / tau for i in range(n)]) + sl[t][j] for j in range(n)])
+
+        def draw(weights):
+            m = max(weights)
+            ps = [math.exp(w - m) for w in weights]
+            r = rng.random() * sum(ps)
+            for idx, p in enumerate(ps):
+                r -= p
+                if r <= 0:
+                    return idx
+            return len(ps) - 1
+
+        j = draw(tf[-1])
+        path = [j]
+        for t in range(T - 2, -1, -1):
+            j = draw([tf[t][i] + tr(t + 1, i, path[-1]) / tau for i in range(n)])
+            path.append(j)
+        path.reverse()
     labels = [vocab[j] for j in path]
     choices = []
     for t, (b, lab) in enumerate(zip(beats, labels)):
@@ -231,8 +269,12 @@ def harmonize(melody, style: StyleModel, key: m21key.Key | str | None = None,
             reasons=_reasons(stats, style, k, b, lab, prev, nxt, role, cad, t in locks, lock_reason),
             cadence=cad, locked=t in locks,
         ))
+        if adventure > 0 and lab != safest[t] and t not in locks:
+            choices[-1].reasons.append(
+                f"Adventure: chose {pretty(lab)} ({post[vocab.index(lab)]:.0%} likely here) instead of the safest "
+                f"choice, {pretty(safest[t])}. {style.title} does use this move; it is just less common.")
         top = alts[0] if alts else None
-        if top is not None and top.probability > choices[-1].confidence and t not in locks:
+        if adventure == 0 and top is not None and top.probability > choices[-1].confidence and t not in locks:
             choices[-1].reasons.append(
                 f"Trade-off: on this beat alone {top.symbol} ({top.name}) is more likely "
                 f"({top.probability:.0%} vs {choices[-1].confidence:.0%}), but {pretty(lab)} connects better with the "

@@ -384,6 +384,18 @@ class MainWindow(QMainWindow):
         self.groove_names = {g.name.lower(): g.name for g in self.grooves}
         tb.addWidget(self.accomp_box)
 
+        tb.addWidget(QLabel(" Adventure "))
+        from PySide6.QtWidgets import QSlider
+
+        self.adventure = QSlider(Qt.Horizontal)
+        self.adventure.setRange(0, 100)
+        self.adventure.setValue(0)
+        self.adventure.setFixedWidth(90)
+        self.adventure.setToolTip("0 = the style's safest, most typical chords. Higher = sample less obvious chords "
+                                  "the style really uses (secondary dominants, deceptive cadences...). "
+                                  "Each Harmonize gives a new variation.")
+        tb.addWidget(self.adventure)
+
         tb.addWidget(QLabel(" Tempo "))
         self.tempo = QSpinBox()
         self.tempo.setRange(30, 240)
@@ -683,7 +695,7 @@ class MainWindow(QMainWindow):
             return
         if self.input_tabs.currentIndex() in (0, 1):  # Melody (ABC) or Step entry
             job = Job(self.session.harmonize_melody, self.melody_edit.toPlainText(), style, key, snd, groove,
-                      self.tempo.value(), self._title(), self.source_path)
+                      self.tempo.value(), self._title(), self.source_path, self.adventure.value() / 100)
             self.statusBar().showMessage(f"Harmonizing in {style.title} style…")
         elif self.pattern_mode.currentIndex() == 0:
             self.seed += 1

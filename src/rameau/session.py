@@ -53,10 +53,10 @@ class Session:
 
     def harmonize_melody(self, melody_text: str, style: StyleModel, key: str | None = None,
                          sound: Sound | None = None, groove: str | None = None, tempo: int = 80,
-                         title: str = "Melody", source_path: Path | None = None) -> Result:
+                         title: str = "Melody", source_path: Path | None = None, adventure: float = 0.0) -> Result:
         """Harmonize and render. Play with ``sound`` (an ensemble or recommended band) or a raw MMA ``groove``."""
         melody = load_melody(source_path) if source_path else load_melody(melody_text)
-        h = harmonize(melody, style, key=key or None, locks=self.locks)
+        h = harmonize(melody, style, key=key or None, locks=self.locks, adventure=adventure, seed=self._run + 1)
         return self._render(melody, h, sound, groove, tempo, title)
 
     def generate_from_pattern(self, pattern_text: str, style: StyleModel, key: str | None = None,

@@ -49,3 +49,23 @@ def test_jazz_walking_bass_moves_on_every_beat():
     bass = [n.pitch.midi for n in r.score.parts[2].flatten().notes]
     assert len(bass) >= 15                 # quarter notes
     assert sum(1 for a, b in zip(bass, bass[1:]) if a != b) >= len(bass) * 0.7
+
+
+def test_adventure_varies_the_journey_not_the_arrivals():
+    from rameau.harmonize import harmonize
+    from rameau.music import load_melody
+    from rameau.voicing import realize
+
+    m = load_melody(SAMPLES / "old_hundredth.abc")
+    st = load_style("bach_chorale")
+    safe = harmonize(m, st)
+    cadences = [i for i, c in enumerate(safe.choices) if c.beat.phrase_end]
+    changed = []
+    for seed in range(1, 6):
+        h = harmonize(m, st, adventure=0.7, seed=seed)
+        assert [h.choices[i].label for i in cadences] == [safe.choices[i].label for i in cadences]
+        assert h.choices[-1].label == safe.choices[-1].label
+        assert not [f for f in realize(h).findings if f.severity == "error"]
+        changed.append(sum(a.label != b.label for a, b in zip(h.choices, safe.choices)))
+    assert max(changed) > 0
+    assert harmonize(m, st, adventure=0.0).labels == safe.labels
