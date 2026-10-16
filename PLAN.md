@@ -198,22 +198,25 @@ Built in session 2 (2026-10-16):
 - **Stability**: fixed a crash from background-job objects being collected before Qt delivered their
   signals (the real cause of the earlier crashes); windowed builds log errors to rameau.log.
 
-Known limitations to address next:
-- Installers are unsigned (Gatekeeper/SmartScreen warnings) and large (~670 MB unpacked on macOS).
-- macOS build is Apple Silicon only; Linux relies on the system FluidSynth.
-- Local-key detection is cautious and under-counts Bach's modulations.
-- Classical quartets: phrase endings are still under-detected from the top line alone (dominant →
-  home endings show 6%, far below reality), and some movements ending off the tonic show up as
-  "Phrygian". Next: detect cadences from the bass line and harmony, not just the melody.
-- AI mode was verified up to the API's billing check (the test account had no credits); a full
-  live run still needs a funded key.
-- Modal music (Palestrina, Monteverdi) is analysed as major/minor; add modal keys.
-- Phrase endings without fermatas are guessed from long notes.
-- Keys are analysed once per piece (no modulation tracking) in training and harmonizing.
-- Generating from a pattern (chords → melody + voices) is not built yet; chords currently
-  go to the MMA band only.
-- AI composer track not started.
-- Not yet tested on Windows/Linux; no installers yet.
+Built in session 2, part 2 (2026-10-16):
+- **Music, not just chords**: performance layer (phrasing, swing, articulation, humanize), independent
+  bass lines, ornaments learned from each corpus, jazz/pop comping (walking bass, pianist voicings),
+  and an Adventure control that keeps each style's cadences.
+- **Live filter unit and mixer**: staged, cached pipeline; changes swap in at the next bar while playing.
+- **New main screen**: HTML/CSS canvas in Qt with an era timeline, harmony strip, chord cards, four dials.
+
+The full story, lessons and direction are in [docs/HISTORY.md](docs/HISTORY.md),
+[docs/LESSONS.md](docs/LESSONS.md) and [docs/DIRECTION.md](docs/DIRECTION.md).
+
+Known limitations (current):
+- Installers are unsigned and large; macOS build is Apple Silicon only; Linux relies on system FluidSynth.
+  Installers not yet rebuilt with the new main screen; live audio in the packaged app untested.
+- Classical cadences under-detected from the top line (next: use bass and harmony); some movements
+  show as "Phrygian". Local-key detection under-counts Bach's modulations. Modal keys are approximate.
+- MMA grooves: only mixer and tempo change live. Swaps at a bar re-strike held notes.
+- Score doesn't highlight notes as they play; loop is whole-piece only; long pieces crowd the strip.
+- Step entry lacks undo, click-to-select and MIDI keyboard input.
+- AI mode with Anthropic verified only up to the billing check (no credits); OpenAI verified live.
 
 ## Milestones
 

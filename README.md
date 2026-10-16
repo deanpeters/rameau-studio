@@ -9,7 +9,7 @@ shows **why** it sounds that way: the chords each style favours, how they move, 
 end. It is named after Jean-Philippe Rameau, whose *Treatise on Harmony* (1722) founded the
 theory of chords it teaches.
 
-Status: early development. See [PLAN.md](PLAN.md).
+Status: early development. See [PLAN.md](PLAN.md), and for the story so far: [what we built and why](docs/HISTORY.md), [what we learned](docs/LESSONS.md) and [where it's going](docs/DIRECTION.md).
 
 ## Download
 
