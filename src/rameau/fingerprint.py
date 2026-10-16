@@ -111,7 +111,7 @@ def fingerprint(style: StyleModel) -> Fingerprint:
     )
 
 
-def compare(styles: list[StyleModel], min_count: int = 25) -> list[Fingerprint]:
+def compare(styles: list[StyleModel], min_count: int | None = None) -> list[Fingerprint]:
     """Fingerprints plus each style's signature moves: progressions it uses far more than the others."""
     fps = [fingerprint(s) for s in styles]
     shares = []
@@ -123,11 +123,13 @@ def compare(styles: list[StyleModel], min_count: int = 25) -> list[Fingerprint]:
     for i, fp in enumerate(fps):
         mine, raw = shares[i]
         others = [shares[j][0] for j in range(len(fps)) if j != i]
+        # Small corpora need a lower bar (Romantic has ~17 pieces); large ones a higher one.
+        floor = min_count if min_count is not None else max(6, min(25, int(sum(raw.values()) * 0.004)))
         if not others:
             continue
         sig = []
         for move, share in mine.items():
-            if raw[move] < min_count:
+            if raw[move] < floor:
                 continue
             other = sum(o.get(move, 0.0) for o in others) / len(others)
             ratio = share / max(other, 0.001)
