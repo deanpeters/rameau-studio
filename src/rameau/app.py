@@ -67,6 +67,156 @@ class Job(QRunnable):
             self.signals.failed.emit(f"{e}\n\n{traceback.format_exc(limit=3)}")
 
 
+def _fill_model_box(box: QComboBox, current: str, models=None) -> None:
+    """Fill a model dropdown: live models if known, else the built-in list; keep the current choice."""
+    from . import ai
+
+    box.blockSignals(True)
+    box.clear()
+    for model_id, label in (models or ai.FALLBACK_MODELS):
+        box.addItem(f"{label}  ·  {model_id}" if label != model_id else model_id, model_id)
+    i = box.findData(current)
+    if i < 0:
+        box.addItem(current, current)
+        i = box.count() - 1
+    box.setCurrentIndex(i)
+    box.blockSignals(False)
+
+
+def _model_from_box(box: QComboBox) -> str:
+    """The model id chosen or typed in an editable model dropdown."""
+    text = box.currentText().strip()
+    i = box.findText(text)
+    return (box.itemData(i) if i >= 0 else text) or text
+
+
+class AISettingsDialog(QDialog):
+    """Manage named API keys (stored in the OS keychain) and pick the active key and model."""
+
+    def __init__(self, parent: "MainWindow") -> None:
+        from . import ai
+
+        super().__init__(parent)
+        self.main = parent
+        self.setWindowTitle("AI settings")
+        self.setMinimumWidth(560)
+        form = QFormLayout(self)
+        form.addRow(QLabel("Keys are stored in your system keychain, never in Rameau's files. "
+                           "The ANTHROPIC_API_KEY environment variable appears as its own entry."))
+
+        row = QHBoxLayout()
+        self.profiles = QComboBox()
+        self.profiles.setMinimumWidth(240)
+        row.addWidget(self.profiles, 1)
+        remove = QPushButton("Remove")
+        remove.clicked.connect(self._remove)
+        row.addWidget(remove)
+        form.addRow("Use API key", row)
+
+        add_row = QHBoxLayout()
+        self.new_name = QLineEdit()
+        self.new_name.setPlaceholderText("Name, e.g. Personal")
+        self.new_key = QLineEdit()
+        self.new_key.setEchoMode(QLineEdit.Password)
+        self.new_key.setPlaceholderText("sk-ant-…")
+        add = QPushButton("Add key")
+        add.clicked.connect(self._add)
+        add_row.addWidget(self.new_name, 1)
+        add_row.addWidget(self.new_key, 2)
+        add_row.addWidget(add)
+        form.addRow("Add API key", add_row)
+
+        mrow = QHBoxLayout()
+        self.model = QComboBox()
+        self.model.setEditable(True)
+        self.model.setInsertPolicy(QComboBox.NoInsert)
+        self.model.setMinimumWidth(320)
+        mrow.addWidget(self.model, 1)
+        self.refresh = QPushButton("Load models for this key")
+        self.refresh.clicked.connect(self._load_models)
+        mrow.addWidget(self.refresh)
+        form.addRow("Model", mrow)
+        self.status = QLabel("Default model: claude-haiku-5-5 (fast, inexpensive). You can also type any model name.")
+        self.status.setWordWrap(True)
+        form.addRow(self.status)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+        self._fill_profiles(ai.active_profile())
+        _fill_model_box(self.model, ai.model_name(), parent._model_cache.get(ai.active_profile()))
+        self.profiles.currentTextChanged.connect(lambda _: self._load_models())
+
+    def _fill_profiles(self, select: str | None) -> None:
+        from . import ai
+
+        self.profiles.blockSignals(True)
+        self.profiles.clear()
+        names = ai.list_profiles()
+        self.profiles.addItems(names or ["(no keys yet: add one below)"])
+        if select in names:
+            self.profiles.setCurrentText(select)
+        self.profiles.blockSignals(False)
+
+    def _add(self) -> None:
+        from . import ai
+
+        try:
+            ai.add_profile(self.new_name.text(), self.new_key.text())
+        except Exception as e:
+            QMessageBox.warning(self, "AI settings", str(e))
+            return
+        name = self.new_name.text().strip()
+        self.new_name.clear()
+        self.new_key.clear()
+        self._fill_profiles(name)
+        self.status.setText(f"Saved '{name}' to your keychain. Checking it…")
+        self._load_models()
+
+    def _remove(self) -> None:
+        from . import ai
+
+        name = self.profiles.currentText()
+        if name not in ai.list_profiles():
+            return
+        try:
+            ai.remove_profile(name)
+        except ValueError as e:
+            QMessageBox.information(self, "AI settings", str(e))
+            return
+        self._fill_profiles(ai.active_profile())
+        self.status.setText(f"Removed '{name}'.")
+
+    def _load_models(self) -> None:
+        from . import ai
+
+        name = self.profiles.currentText()
+        if name not in ai.list_profiles():
+            return
+        self.status.setText(f"Loading the models available to '{name}'…")
+        job = Job(ai.list_models, name)
+        job.signals.done.connect(lambda models: self._models_ready(name, models))
+        job.signals.failed.connect(lambda msg: self.status.setText(f"'{name}': {msg.splitlines()[0]}"))
+        self.main.pool.start(job)
+
+    def _models_ready(self, name: str, models) -> None:
+        self.main._model_cache[name] = models
+        current = _model_from_box(self.model)
+        _fill_model_box(self.model, current, models)
+        self.status.setText(f"'{name}' works: {len(models)} models available.")
+
+    def _save(self) -> None:
+        from . import ai
+
+        name = self.profiles.currentText()
+        if name in ai.list_profiles():
+            ai.set_active_profile(name)
+        ai.set_model(_model_from_box(self.model))
+        self.accept()
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -86,6 +236,8 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_body()
         self._fill_sounds()
+        self._refresh_ai_bar()
+        self._load_models()
         self._load_sample("old_hundredth.abc")
         self._refresh_fingerprint()
         self.statusBar().showMessage("Pick a melody and a style, then press Harmonize.")
@@ -299,6 +451,28 @@ class MainWindow(QMainWindow):
         self.center.addTab(self.text_view, "Explanation / MMA")
         tutor = QWidget()
         tl = QVBoxLayout(tutor)
+        bar = QHBoxLayout()
+        bar.addWidget(QLabel("API key"))
+        self.ai_profile_box = QComboBox()
+        self.ai_profile_box.setMinimumWidth(200)
+        self.ai_profile_box.setToolTip("Which saved Anthropic API key to use. 'Environment variable' means "
+                                       "ANTHROPIC_API_KEY.")
+        self.ai_profile_box.currentTextChanged.connect(self._profile_switched)
+        bar.addWidget(self.ai_profile_box)
+        bar.addWidget(QLabel("Model"))
+        self.ai_model_box = QComboBox()
+        self.ai_model_box.setEditable(True)
+        self.ai_model_box.setInsertPolicy(QComboBox.NoInsert)
+        self.ai_model_box.setMinimumWidth(260)
+        self.ai_model_box.activated.connect(lambda _: self._model_switched())
+        self.ai_model_box.lineEdit().editingFinished.connect(self._model_switched)
+        bar.addWidget(self.ai_model_box)
+        manage = QPushButton("Manage keys…")
+        manage.clicked.connect(self._ai_settings)
+        bar.addWidget(manage)
+        bar.addStretch(1)
+        tl.addLayout(bar)
+        self._model_cache: dict = {}
         self.tutor_log = QTextBrowser()
         self.tutor_log.setHtml("<p><b>Ask the tutor</b> about the piece on screen: <i>Why does Bach use V/V here? "
                                "What would Palestrina do differently? Why is this cadence called authentic?</i></p>"
@@ -534,42 +708,59 @@ class MainWindow(QMainWindow):
 
     # ---------------------------------------------------------------- AI mode
     def _ai_settings(self) -> None:
+        AISettingsDialog(self).exec()
+        self._refresh_ai_bar()
+
+    # quick switchers above the tutor chat
+    def _refresh_ai_bar(self) -> None:
         from . import ai
 
-        dlg = QDialog(self)
-        dlg.setWindowTitle("AI settings")
-        form = QFormLayout(dlg)
-        source = ai.key_source()
-        status = {"environment": "Using the ANTHROPIC_API_KEY environment variable.",
-                  "keychain": "Using the key saved in your system keychain.",
-                  None: "AI mode is off. Paste an Anthropic API key to turn it on."}[source]
-        form.addRow(QLabel(status))
-        key_edit = QLineEdit()
-        key_edit.setEchoMode(QLineEdit.Password)
-        key_edit.setPlaceholderText("sk-ant-… (stored in your system keychain, never in a file)")
-        form.addRow("API key", key_edit)
-        model_edit = QLineEdit(ai.model_name())
-        form.addRow("Model", model_edit)
-        form.addRow(QLabel("<small>Default: claude-haiku-5-5 (fast and inexpensive). Any Claude model name "
-                           "works.</small>"))
-        clear = QPushButton("Remove saved key")
-        clear.clicked.connect(lambda: (ai.clear_keychain_key(), clear.setText("Removed")))
-        form.addRow(clear)
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        form.addRow(buttons)
-        if dlg.exec() != QDialog.Accepted:
+        self.ai_profile_box.blockSignals(True)
+        self.ai_profile_box.clear()
+        profiles = ai.list_profiles()
+        if profiles:
+            self.ai_profile_box.addItems(profiles)
+            self.ai_profile_box.setCurrentText(ai.active_profile())
+        else:
+            self.ai_profile_box.addItem("No key: open AI settings…")
+        self.ai_profile_box.blockSignals(False)
+        _fill_model_box(self.ai_model_box, ai.model_name(), self._model_cache.get(ai.active_profile()))
+
+    def _profile_switched(self, name: str) -> None:
+        from . import ai
+
+        if name in ai.list_profiles():
+            ai.set_active_profile(name)
+            self.statusBar().showMessage(f"AI key: {name}")
+            self._load_models(name)
+
+    def _model_switched(self) -> None:
+        from . import ai
+
+        model = _model_from_box(self.ai_model_box)
+        if model and model != ai.model_name():
+            ai.set_model(model)
+            self.statusBar().showMessage(f"AI model: {model}")
+
+    def _load_models(self, profile: str | None = None) -> None:
+        """Fetch the models this key can use (free API call) and refresh the dropdown."""
+        from . import ai
+
+        profile = profile or ai.active_profile()
+        if not profile:
             return
-        if key_edit.text().strip():
-            try:
-                ai.save_key_to_keychain(key_edit.text())
-            except Exception as e:
-                QMessageBox.warning(self, "Rameau", f"Couldn't save the key to the keychain: {e}")
-        settings = ai.load_settings()
-        settings["ai_model"] = model_edit.text().strip() or ai.DEFAULT_MODEL
-        ai.save_settings(settings)
-        self.statusBar().showMessage(f"AI model: {settings['ai_model']}")
+        job = Job(ai.list_models, profile)
+        job.signals.done.connect(lambda models: self._models_loaded(profile, models))
+        job.signals.failed.connect(lambda msg: self.statusBar().showMessage(
+            f"Model list unavailable: {msg.splitlines()[0]}"))
+        self.pool.start(job)
+
+    def _models_loaded(self, profile: str, models) -> None:
+        from . import ai
+
+        self._model_cache[profile] = models
+        if profile == ai.active_profile():
+            _fill_model_box(self.ai_model_box, ai.model_name(), models)
 
     def _ai_compose(self) -> None:
         from . import ai
@@ -700,7 +891,8 @@ def main() -> int:
             return app.exec()
         QTimer.singleShot(500, w._run)
         QTimer.singleShot(1200, lambda: w.chord_list.setCurrentRow(3))
-        QTimer.singleShot(4000, lambda: snap(0, shot, lambda: snap(1, shot.replace(".png", "-fp.png"), app.quit)))
+        first_tab = int(env.get("RAMEAU_SELFTEST_CENTER", "0"))
+        QTimer.singleShot(4000, lambda: snap(first_tab, shot, lambda: snap(1, shot.replace(".png", "-fp.png"), app.quit)))
     return app.exec()
 
 

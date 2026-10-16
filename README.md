@@ -50,10 +50,13 @@ SoundFont. Put [GeneralUser GS](https://schristiancollins.com/generaluser.php) i
 Rameau works fully without AI. To enable the tutor and AI composer, either:
 
 - set the `ANTHROPIC_API_KEY` environment variable, or
-- open **AI settings…** in the app and paste a key. It is stored in your operating system's
-  keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service), never in a file.
+- open **AI settings…** in the app and add one or more named keys (e.g. *Personal*, *Work*). Each
+  is stored in your operating system's keychain (macOS Keychain, Windows Credential Manager,
+  Linux Secret Service), never in a file.
 
-Choose any Claude model in AI settings (default `claude-haiku-5-5`), or set `RAMEAU_AI_MODEL`.
+Switch keys and models from the **Ask the tutor** tab or AI settings. The model list is loaded live
+from Anthropic for the selected key (default `claude-haiku-5-5`); you can also type any model name,
+or set `RAMEAU_AI_MODEL`.
 
 ## How it works
 

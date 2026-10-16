@@ -21,14 +21,22 @@ from dataclasses import dataclass
 
 DEFAULT_MODEL = "claude-haiku-5-5"
 KEYCHAIN_SERVICE = "rameau-studio"
-KEYCHAIN_USER = "anthropic-api-key"
+LEGACY_KEYCHAIN_USER = "anthropic-api-key"   # single key saved by earlier versions
+ENV_PROFILE = "Environment variable"
+
+# Shown when the live model list can't be fetched (no key yet, offline). Cheapest first.
+FALLBACK_MODELS = [
+    ("claude-haiku-5-5", "Claude Haiku 5.5 (fast, inexpensive)"),
+    ("claude-sonnet-5-5", "Claude Sonnet 5.5 (balanced)"),
+    ("claude-opus-5-5", "Claude Opus 5.5 (most thorough)"),
+]
 
 
 class AIUnavailable(RuntimeError):
     """AI mode can't run (no key, bad key, no network...). The message is safe to show the user."""
 
 
-# --------------------------------------------------------------------------- settings & keys
+# --------------------------------------------------------------------------- settings
 
 def _settings_path():
     from .audio import user_data_dir
@@ -44,7 +52,8 @@ def load_settings() -> dict:
 
 
 def save_settings(settings: dict) -> None:
-    clean = {k: v for k, v in settings.items() if "key" not in k.lower()}  # never persist secrets here
+    # Never persist secrets here: drop anything that looks like a key value.
+    clean = {k: v for k, v in settings.items() if "key" not in k.lower() and not str(v).startswith("sk-")}
     p = _settings_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(clean, indent=1))
@@ -54,51 +63,149 @@ def model_name() -> str:
     return os.environ.get("RAMEAU_AI_MODEL") or load_settings().get("ai_model") or DEFAULT_MODEL
 
 
-def keychain_key() -> str | None:
-    try:
-        import keyring
+def set_model(model: str) -> None:
+    settings = load_settings()
+    settings["ai_model"] = model.strip() or DEFAULT_MODEL
+    save_settings(settings)
 
-        return keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_USER)
+
+# --------------------------------------------------------------------------- API key profiles
+#
+# A profile is a name (e.g. "Personal", "Work"). Its key lives in the OS keychain under
+# "anthropic-api-key:<name>". The environment variable, when set, appears as its own profile.
+# Settings store only the profile names and which one is active.
+
+def _keyring():
+    import keyring
+
+    return keyring
+
+
+def _keychain_user(profile: str) -> str:
+    return f"anthropic-api-key:{profile}"
+
+
+def _migrate_legacy_key() -> None:
+    try:
+        old = _keyring().get_password(KEYCHAIN_SERVICE, LEGACY_KEYCHAIN_USER)
+    except Exception:
+        return
+    if old:
+        add_profile("Default", old, activate=not load_settings().get("ai_active_profile"))
+        try:
+            _keyring().delete_password(KEYCHAIN_SERVICE, LEGACY_KEYCHAIN_USER)
+        except Exception:
+            pass
+
+
+def env_key_present() -> bool:
+    return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+
+
+def list_profiles() -> list[str]:
+    _migrate_legacy_key()
+    names = list(load_settings().get("ai_profiles", []))
+    return ([ENV_PROFILE] if env_key_present() else []) + names
+
+
+def active_profile() -> str | None:
+    profiles = list_profiles()
+    chosen = load_settings().get("ai_active_profile")
+    if chosen in profiles:
+        return chosen
+    return profiles[0] if profiles else None
+
+
+def set_active_profile(name: str) -> None:
+    settings = load_settings()
+    settings["ai_active_profile"] = name
+    save_settings(settings)
+
+
+def add_profile(name: str, api_key: str, activate: bool = True) -> None:
+    name = name.strip()
+    if not name or name == ENV_PROFILE:
+        raise ValueError("Choose a name for this key, e.g. Personal or Work.")
+    if not api_key.strip():
+        raise ValueError("Paste the API key.")
+    _keyring().set_password(KEYCHAIN_SERVICE, _keychain_user(name), api_key.strip())
+    settings = load_settings()
+    names = [n for n in settings.get("ai_profiles", []) if n != name] + [name]
+    settings["ai_profiles"] = names
+    if activate:
+        settings["ai_active_profile"] = name
+    save_settings(settings)
+
+
+def remove_profile(name: str) -> None:
+    if name == ENV_PROFILE:
+        raise ValueError("The environment key is set outside Rameau; unset ANTHROPIC_API_KEY to remove it.")
+    try:
+        _keyring().delete_password(KEYCHAIN_SERVICE, _keychain_user(name))
+    except Exception:
+        pass
+    settings = load_settings()
+    settings["ai_profiles"] = [n for n in settings.get("ai_profiles", []) if n != name]
+    if settings.get("ai_active_profile") == name:
+        settings.pop("ai_active_profile", None)
+    save_settings(settings)
+
+
+def profile_key(name: str) -> str | None:
+    if name == ENV_PROFILE:
+        return None
+    try:
+        return _keyring().get_password(KEYCHAIN_SERVICE, _keychain_user(name))
     except Exception:
         return None
 
 
-def save_key_to_keychain(api_key: str) -> None:
-    import keyring
-
-    keyring.set_password(KEYCHAIN_SERVICE, KEYCHAIN_USER, api_key.strip())
-
-
-def clear_keychain_key() -> None:
-    try:
-        import keyring
-
-        keyring.delete_password(KEYCHAIN_SERVICE, KEYCHAIN_USER)
-    except Exception:
-        pass
-
-
 def key_source() -> str | None:
-    """Where the key comes from ('environment' / 'keychain'), or None if AI mode is off."""
-    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
-        return "environment"
-    if keychain_key():
-        return "keychain"
-    return None
+    """Name of the profile in use, or None if AI mode is off."""
+    return active_profile()
 
 
-def _client():
+def _client(profile: str | None = None):
     import anthropic
 
+    profile = profile or active_profile()
+    if profile is None:
+        raise AIUnavailable("AI mode is off: add an Anthropic API key in AI settings, or set the "
+                            "ANTHROPIC_API_KEY environment variable.")
     try:
-        # Environment variables (and SDK auth profiles) take priority; the keychain is the fallback.
-        if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+        if profile == ENV_PROFILE:
             return anthropic.Anthropic()
-        key = keychain_key()
-        return anthropic.Anthropic(api_key=key) if key else anthropic.Anthropic()
+        key = profile_key(profile)
+        if not key:
+            raise AIUnavailable(f"No key is saved for '{profile}'. Add it again in AI settings.")
+        return anthropic.Anthropic(api_key=key)
+    except AIUnavailable:
+        raise
     except Exception as e:
         raise AIUnavailable("AI mode is off: add an Anthropic API key in AI settings, or set the "
                             "ANTHROPIC_API_KEY environment variable.") from e
+
+
+def list_models(profile: str | None = None) -> list[tuple[str, str]]:
+    """Models this key can use, as (id, display name), from Anthropic's Models API (no token cost).
+
+    Raises AIUnavailable with a friendly message if the key is missing or rejected.
+    """
+    import anthropic
+
+    client = _client(profile)
+    try:
+        models = [(m.id, m.display_name) for m in client.models.list()]
+    except anthropic.AuthenticationError as e:
+        raise AIUnavailable("This API key was rejected.") from e
+    except anthropic.APIConnectionError as e:
+        raise AIUnavailable("Couldn't reach Anthropic. Check your internet connection.") from e
+    except anthropic.APIStatusError as e:
+        raise AIUnavailable(f"Couldn't list models ({e.status_code}).") from e
+    # Haiku first (the default), then Sonnet, Opus, everything else; newest first within each.
+    order = {"haiku": 0, "sonnet": 1, "opus": 2}
+    models.sort(key=lambda m: m[0], reverse=True)  # newest first within a family...
+    return sorted(models, key=lambda m: next((v for k, v in order.items() if k in m[0]), 3))  # ...Haiku first
 
 
 def _error_detail(e) -> str:
