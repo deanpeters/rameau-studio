@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 from pathlib import Path
 
-from music21 import clef, harmony, instrument, layout, metadata, note, stream, tempo
+from music21 import clef, harmony, instrument, layout, metadata, note, pitch, stream, tempo
 
 from .harmonize import Harmonization, chord_symbol
 from .voicing import Realization
@@ -16,6 +16,28 @@ PART_INFO = [
     ("Tenor", clef.Treble8vbClef),
     ("Bass", clef.BassClef),
 ]
+
+
+def spell(midi: int, k, chord_pitches=()) -> pitch.Pitch:
+    """Spell a MIDI note the way the key (or the current chord) would, without stray naturals."""
+    pc = midi % 12
+    for ref in list(chord_pitches) + list(k.getScale().getPitches()):
+        if ref.pitchClass == pc:
+            p = pitch.Pitch(ref.name)
+            p.octave = None
+            # pick the octave that gives the right MIDI number
+            for octv in range(0, 9):
+                p.octave = octv
+                if p.midi == midi:
+                    break
+            if p.midi == midi:
+                if p.accidental is not None and p.accidental.name == "natural":
+                    p.accidental = None
+                return p
+    p = pitch.Pitch(midi=midi)
+    if p.accidental is not None and p.accidental.name == "natural":
+        p.accidental = None
+    return p
 
 
 def _voice_part(melody: stream.Part, h: Harmonization, r: Realization, voice: int, name: str, clef_cls) -> stream.Part:
@@ -51,7 +73,9 @@ def _voice_part(melody: stream.Part, h: Harmonization, r: Realization, voice: in
             if prev_n is not None and prev_n.pitch.midi == midi and h.choices[t].label == h.choices[t - 1].label:
                 prev_n.quarterLength += c.beat.duration
                 continue
-            n = note.Note(midi, quarterLength=c.beat.duration)
+            from music21 import roman
+
+            n = note.Note(spell(midi, h.key, roman.RomanNumeral(c.label, h.key).pitches), quarterLength=c.beat.duration)
             nm.insert(pos, n)
             prev_n = n
             if voice == 3:

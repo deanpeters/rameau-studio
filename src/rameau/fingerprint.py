@@ -105,10 +105,7 @@ def _p(x: float) -> str:
     return f"{x:.0%}"
 
 
-def fingerprint_markdown(styles: list[StyleModel]) -> str:
-    fps = compare(styles)
-    head = "| | " + " | ".join(fp.style.title for fp in fps) + " |"
-    sep = "|---" * (len(fps) + 1) + "|"
+def table_rows(fps: list[Fingerprint]) -> list[tuple[str, list[str]]]:
     rows = [
         ("Pieces learned from", [str(fp.style.pieces) for fp in fps]),
         ("Chords analysed", [f"{fp.chords:,}" for fp in fps]),
@@ -125,6 +122,26 @@ def fingerprint_markdown(styles: list[StyleModel]) -> str:
         rows.append(("Signature moves (vs the others)",
                      ["<br>".join(f"{a} → {b} ({x:.1f}× more)" for a, b, _, x in fp.signature_moves[:4]) or "n/a"
                       for fp in fps]))
+    return rows
+
+
+def fingerprint_markdown(styles: list[StyleModel]) -> str:
+    fps = compare(styles)
+    rows = table_rows(fps)
+    head = "| | " + " | ".join(fp.style.title for fp in fps) + " |"
+    sep = "|---" * (len(fps) + 1) + "|"
     lines = ["# Style fingerprints", "", head, sep]
     lines += [f"| {name} | " + " | ".join(vals) + " |" for name, vals in rows]
     return "\n".join(lines)
+
+
+def fingerprint_html(styles: list[StyleModel]) -> str:
+    import html
+
+    fps = compare(styles)
+    head = "".join(f"<th>{html.escape(fp.style.title)}</th>" for fp in fps)
+    body = "".join(
+        f"<tr><th class=row>{html.escape(name)}</th>" + "".join(f"<td>{v}</td>" for v in vals) + "</tr>"
+        for name, vals in table_rows(fps))
+    notes = "".join(f"<p><b>{html.escape(fp.style.title)}</b>: {html.escape(fp.style.description)}</p>" for fp in fps)
+    return f"<table><tr><th></th>{head}</tr>{body}</table>{notes}"
