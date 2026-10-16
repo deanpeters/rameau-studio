@@ -146,6 +146,25 @@ def write_midi(score: stream.Score, path: Path, bpm: int = 72, program: int | No
     return path
 
 
+def write_ensemble_midi(score: stream.Score, path: Path, voices, bpm: int = 72) -> Path:
+    """Write MIDI with General MIDI instruments per voice. ``voices[i]`` is a tuple of programs for
+    part i; several programs double that part (e.g. choir + organ)."""
+    out = stream.Score()
+    for i, part in enumerate(score.parts):
+        programs = voices[min(i, len(voices) - 1)]
+        for prog in programs:
+            cp = copy.deepcopy(part)
+            for el in list(cp.recurse().getElementsByClass((instrument.Instrument, harmony.ChordSymbol))):
+                el.activeSite.remove(el)
+            inst = instrument.Instrument()
+            inst.midiProgram = prog
+            cp.insert(0, inst)
+            out.insert(0, cp)
+    add_tempo(out, bpm)
+    out.write("midi", fp=str(path))
+    return path
+
+
 def write_musicxml(score: stream.Score, path: Path) -> Path:
     score.write("musicxml", fp=str(path))
     return path

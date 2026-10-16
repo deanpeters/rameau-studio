@@ -12,12 +12,9 @@ from music21 import stream
 from . import band, render
 from .harmonize import Harmonization, harmonize
 from .music import load_melody
+from .sounds import Sound
 from .style import StyleModel
 from .voicing import Realization, realize
-
-VOICES = "Four voices (organ)"
-CHOIR = "Four voices (choir)"
-GM_PROGRAMS = {VOICES: 19, CHOIR: 52}  # General MIDI: church organ, choir aahs
 
 
 @dataclass
@@ -39,26 +36,36 @@ class Session:
         self.locks: dict[int, str] = {}
 
     def harmonize_melody(self, melody_text: str, style: StyleModel, key: str | None = None,
-                         accompaniment: str = VOICES, tempo: int = 80, title: str = "Melody",
-                         source_path: Path | None = None) -> Result:
+                         sound: Sound | None = None, groove: str | None = None, tempo: int = 80,
+                         title: str = "Melody", source_path: Path | None = None) -> Result:
+        """Harmonize and render. Play with ``sound`` (an ensemble or recommended band) or a raw MMA ``groove``."""
         melody = load_melody(source_path) if source_path else load_melody(melody_text)
         h = harmonize(melody, style, key=key or None, locks=self.locks)
         r = realize(h)
         score = render.build_score(melody, h, r, title)
         midi = self.workdir / "song.mid"
         band_src = None
-        if accompaniment in GM_PROGRAMS:
-            render.write_midi(score, midi, bpm=tempo, program=GM_PROGRAMS[accompaniment])
+        ts = melody.recurse().getElementsByClass("TimeSignature").first()
+        ts_text = ts.ratioString if ts else "4/4"
+        melody_program = 73
+        if sound is not None and not sound.is_groove:
+            render.write_ensemble_midi(score, midi, sound.voices, bpm=tempo)
         else:
+            if sound is not None:
+                groove = sound.groove_for(int(ts_text.split("/")[0]))
+                melody_program = sound.melody_program
+                if groove is None:
+                    raise ValueError(f"{sound.name} has no groove for {ts_text} time. Pick another sound.")
+            groove = groove or "Hymn"
             bars, pickup = band.bars_from_harmonization(h, r)
-            ts = melody.recurse().getElementsByClass("TimeSignature").first()
-            band_src = band.mma_source(bars, accompaniment, tempo, ts.ratioString if ts else "4/4", title, pickup)
+            band_src = band.mma_source(bars, groove, tempo, ts_text, title, pickup)
             band.render_band(band_src, self.workdir / "band.mid")
             mel = copy.deepcopy(score)
             for p in list(mel.parts)[1:]:
                 mel.remove(p)
             render.write_midi(mel, self.workdir / "melody.mid", bpm=tempo, program=None)
-            band.merge_midi(self.workdir / "band.mid", self.workdir / "melody.mid", midi)
+            band.merge_midi(self.workdir / "band.mid", self.workdir / "melody.mid", midi,
+                            overlay_program=melody_program)
         return Result(title, melody, h, r, score, midi, render.explanation_markdown(h, r, title),
                       render.to_svg_pages(score), band_src)
 

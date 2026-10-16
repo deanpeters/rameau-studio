@@ -152,6 +152,25 @@ Working on macOS, 16 tests passing, two local commits:
   (`rameau-studio`): melody/chord input, style/key/sound pickers, score, Why panel with
   click-to-try alternatives, voice-leading check, fingerprint tab, play, export.
 
+Feedback from Dean after the first run (2026-10-15):
+- **Guide style + sound together.** Each style should come with recommended sounds
+  (instruments per voice, tempo range, texture or groove), a one-line "why" (e.g. Bach
+  chorales were sung by a choir with the organ doubling the voices), and a gentle flag for
+  unusual pairings ("Palestrina + Bossa Nova: a mashup; the harmony stays Renaissance").
+  Grooves should be grouped and suggested per style rather than shown as 1,167 names.
+- **AI mode, bring your own key** (future): in Settings, the user enters an API key and a model
+  name (Anthropic, OpenAI, OpenRouter, or a local server such as Ollama/LM Studio). Uses:
+  (a) **tutor**: chat about the current score ("why does Bach use V/V here?", "what would
+  Mozart do differently?"), grounded in Rameau's own analysis and fingerprints;
+  (b) **composer**: ask for melodies or variations in ABC, which Rameau then harmonizes,
+  checks and explains; (c) **guide**: suggest style/sound pairings and next experiments.
+  Keys stay on the user's machine (OS keychain); the app works fully without AI.
+- *Built 2026-10-15:* style-aware **Sound** menu (recommended ensembles first, grooves grouped
+  by family), per-voice instruments with doubling, default tempo per sound, and a hint bar
+  explaining each pairing (recommended / time-travel / mashup).
+- **Step-entry notation editing** (future): enter and edit melodies note by note on the
+  staff, not only as ABC text.
+
 Known limitations to address next:
 - Modal music (Palestrina, Monteverdi) is analysed as major/minor; add modal keys.
 - Phrase endings without fermatas are guessed from long notes.
