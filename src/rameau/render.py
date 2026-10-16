@@ -227,7 +227,7 @@ def to_svg_pages(score: stream.Score, width: int = 2100, scale: int = 40) -> lis
         score.write("musicxml", fp=str(xml))
         options = {"pageWidth": width, "scale": scale, "adjustPageHeight": True, "footer": "none",
                    "header": "auto", "breaks": "auto", "lyricSize": 3.5}
-        pages = _verovio_thread.submit(_verovio_render, xml.read_text(), options).result()
+        pages = _verovio_thread.submit(_verovio_render, xml.read_text(encoding="utf-8"), options).result()
     if not pages:
         raise RuntimeError("Verovio produced no pages.")
     return pages

@@ -527,7 +527,7 @@ class MainWindow(QMainWindow):
 
     # ---------------------------------------------------------------- input
     def _load_sample(self, name: str) -> None:
-        self.melody_edit.setPlainText((SAMPLES / name).read_text())
+        self.melody_edit.setPlainText((SAMPLES / name).read_text(encoding="utf-8"))
         self.source_path = None
         self.session.locks.clear()
         self.input_tabs.setCurrentIndex(0)
@@ -540,7 +540,7 @@ class MainWindow(QMainWindow):
         p = Path(path)
         self.session.locks.clear()
         if p.suffix.lower() == ".abc":
-            self.melody_edit.setPlainText(p.read_text())
+            self.melody_edit.setPlainText(p.read_text(encoding="utf-8"))
             self.source_path = None
         else:
             self.source_path = p
@@ -845,13 +845,13 @@ class MainWindow(QMainWindow):
         wav = self.result.midi.with_suffix(".wav")
         if wav.exists():
             shutil.copy(wav, out / f"{stem}.wav")
-        (out / f"{stem}.md").write_text(self.result.explanation)
+        (out / f"{stem}.md").write_text(self.result.explanation, encoding="utf-8")
         if self.result.score is not None:
             from .render import write_musicxml
 
             write_musicxml(self.result.score, out / f"{stem}.musicxml")
         if self.result.band_source:
-            (out / f"{stem}.mma").write_text(self.result.band_source)
+            (out / f"{stem}.mma").write_text(self.result.band_source, encoding="utf-8")
         self.statusBar().showMessage(f"Exported to {out}")
 
 

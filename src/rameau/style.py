@@ -126,7 +126,7 @@ class StyleModel:
         }
 
     def save(self, path: Path) -> None:
-        path.write_text(json.dumps(self.to_json(), indent=1, sort_keys=True))
+        path.write_text(json.dumps(self.to_json(), indent=1, sort_keys=True, ensure_ascii=False), encoding="utf-8")
 
     @classmethod
     def from_json(cls, data: dict) -> "StyleModel":
@@ -141,7 +141,7 @@ class StyleModel:
 
     @classmethod
     def load(cls, path: Path) -> "StyleModel":
-        return cls.from_json(json.loads(Path(path).read_text()))
+        return cls.from_json(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
 def builtin_styles() -> dict[str, Path]:

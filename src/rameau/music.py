@@ -40,7 +40,7 @@ def load_melody(source: str | Path, fmt: str | None = None) -> stream.Part:
         path = Path(source)
         fmt = fmt or FORMAT_BY_SUFFIX.get(path.suffix.lower())
         if fmt == "abc":
-            score = converter.parse(_mark_abc_fermatas(path.read_text()), format="abc")
+            score = converter.parse(_mark_abc_fermatas(path.read_text(encoding="utf-8")), format="abc")
             _restore_fermatas(score)
         else:
             score = converter.parse(str(path), format=fmt)

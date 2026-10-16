@@ -59,7 +59,7 @@ def list_grooves(libraries: tuple[str, ...] = ("stdlib",)) -> list[Groove]:
     out = []
     for lib in libraries:
         for f in sorted((ENGINE / "lib" / lib).glob("*.mma")):
-            text = f.read_text(errors="replace")
+            text = f.read_text(encoding="utf-8", errors="replace")
             doc = ""
             m = re.search(r"^Begin Doc\s*(.*?)^End", text, re.S | re.M)
             if m:
@@ -98,7 +98,7 @@ def render_band(source: str, midi_out: Path) -> Path:
     ensure_groove_database()
     with tempfile.TemporaryDirectory() as d:
         src = Path(d) / "song.mma"
-        src.write_text(source)
+        src.write_text(source, encoding="utf-8")
         proc = _run_mma([str(src), "-f", str(Path(midi_out).resolve())], cwd=Path(d))
     if proc.returncode != 0 or not Path(midi_out).exists():
         msg = (proc.stdout + proc.stderr).strip().splitlines()

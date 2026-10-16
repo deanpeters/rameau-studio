@@ -46,7 +46,7 @@ def _settings_path():
 
 def load_settings() -> dict:
     try:
-        return json.loads(_settings_path().read_text())
+        return json.loads(_settings_path().read_text(encoding="utf-8"))
     except Exception:
         return {}
 
@@ -56,7 +56,7 @@ def save_settings(settings: dict) -> None:
     clean = {k: v for k, v in settings.items() if "key" not in k.lower() and not str(v).startswith("sk-")}
     p = _settings_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(clean, indent=1))
+    p.write_text(json.dumps(clean, indent=1), encoding="utf-8")
 
 
 def model_name() -> str:

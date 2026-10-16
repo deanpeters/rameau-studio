@@ -38,12 +38,12 @@ def _harmonize(args) -> int:
         render.write_musicxml(score, stem.with_suffix(".musicxml")),
     ]
     md = stem.with_suffix(".md")
-    md.write_text(render.explanation_markdown(h, r, title))
+    md.write_text(render.explanation_markdown(h, r, title), encoding="utf-8")
     files.append(md)
     if args.svg:
         for i, svg in enumerate(render.to_svg_pages(score), 1):
             p = out / f"{src.stem}-{i}.svg"
-            p.write_text(svg)
+            p.write_text(svg, encoding="utf-8")
             files.append(p)
 
     print("\n".join(h.notes))

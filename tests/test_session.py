@@ -10,7 +10,7 @@ SAMPLES = Path(__file__).parents[1] / "src" / "rameau" / "samples"
 def test_each_render_gets_its_own_files_and_old_ones_are_cleaned():
     """Regression: re-rendering overwrote the WAV the player was reading, crashing the app."""
     s = Session()
-    text = (SAMPLES / "twinkle.abc").read_text()
+    text = (SAMPLES / "twinkle.abc").read_text(encoding="utf-8")
     style = load_style("bach_chorale")
     paths = []
     for _ in range(4):

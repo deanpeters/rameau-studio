@@ -31,7 +31,7 @@ def test_pairing_notes_explain_fit_and_mashups():
 
 def test_choir_and_organ_double_every_voice():
     s = Session()
-    r = s.harmonize_melody((SAMPLES / "twinkle.abc").read_text(), load_style("bach_chorale"),
+    r = s.harmonize_melody((SAMPLES / "twinkle.abc").read_text(encoding="utf-8"), load_style("bach_chorale"),
                            sound=SOUNDS["choir_organ"])
     programs = {m.program for t in mido.MidiFile(str(r.midi)).tracks for m in t if m.type == "program_change"}
     assert {52, 19} <= programs
@@ -39,6 +39,6 @@ def test_choir_and_organ_double_every_voice():
 
 def test_band_sound_uses_waltz_groove_in_three_four():
     s = Session()
-    r = s.harmonize_melody((SAMPLES / "greensleeves.abc").read_text(), load_style("classical"),
+    r = s.harmonize_melody((SAMPLES / "greensleeves.abc").read_text(encoding="utf-8"), load_style("classical"),
                            sound=SOUNDS["alberti"])
     assert "Groove ArpeggioWaltz8" in r.band_source

@@ -53,7 +53,7 @@ def test_keys_never_reach_the_settings_file(env):
     kr, tmp = env
     ai.add_profile("Personal", "sk-ant-secret-value")
     ai.set_model("claude-sonnet-5-5")
-    text = (tmp / "settings.json").read_text()
+    text = (tmp / "settings.json").read_text(encoding="utf-8")
     assert "sk-ant" not in text
     assert json.loads(text)["ai_model"] == "claude-sonnet-5-5"
 
