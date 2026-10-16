@@ -186,6 +186,9 @@ Built in session 1, part 2 (2026-10-15), now public at https://github.com/deanpe
 
 Known limitations to address next:
 - Local-key detection is cautious and under-counts Bach's modulations.
+- Classical quartets: phrase endings are still under-detected from the top line alone (dominant →
+  home endings show 6%, far below reality), and some movements ending off the tonic show up as
+  "Phrygian". Next: detect cadences from the bass line and harmony, not just the melody.
 - AI mode was verified up to the API's billing check (the test account had no credits); a full
   live run still needs a funded key.
 - Modal music (Palestrina, Monteverdi) is analysed as major/minor; add modal keys.
