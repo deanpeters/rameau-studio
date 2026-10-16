@@ -327,6 +327,52 @@
     "ii": 2,
     "vi": 2
    },
+   "opportunities": {
+    "alto": {
+     "anticipation": 727,
+     "arpeggio": 1732,
+     "neighbor": 1005,
+     "passing": 149,
+     "suspension": 350
+    },
+    "bass": {
+     "anticipation": 760,
+     "arpeggio": 1770,
+     "neighbor": 1010,
+     "passing": 149,
+     "suspension": 279
+    },
+    "tenor": {
+     "anticipation": 724,
+     "arpeggio": 1841,
+     "neighbor": 1117,
+     "passing": 147,
+     "suspension": 262
+    }
+   },
+   "ornaments": {
+    "alto": {
+     "anticipation": 10,
+     "arpeggio": 6,
+     "neighbor": 22,
+     "passing": 92,
+     "suspension": 119
+    },
+    "bass": {
+     "anticipation": 13,
+     "arpeggio": 8,
+     "neighbor": 29,
+     "passing": 69,
+     "suspension": 67
+    },
+    "tenor": {
+     "anticipation": 12,
+     "arpeggio": 5,
+     "neighbor": 16,
+     "passing": 59,
+     "suspension": 76
+    }
+   },
    "phrases": 282,
    "rhythm": {
     "strong": [
@@ -1186,6 +1232,52 @@
     "iv": 49,
     "v": 69
    },
+   "opportunities": {
+    "alto": {
+     "anticipation": 3998,
+     "arpeggio": 10492,
+     "neighbor": 6494,
+     "passing": 908,
+     "suspension": 1651
+    },
+    "bass": {
+     "anticipation": 3143,
+     "arpeggio": 8993,
+     "neighbor": 5850,
+     "passing": 700,
+     "suspension": 1020
+    },
+    "tenor": {
+     "anticipation": 3246,
+     "arpeggio": 9946,
+     "neighbor": 6700,
+     "passing": 774,
+     "suspension": 1169
+    }
+   },
+   "ornaments": {
+    "alto": {
+     "anticipation": 35,
+     "arpeggio": 65,
+     "neighbor": 159,
+     "passing": 400,
+     "suspension": 497
+    },
+    "bass": {
+     "anticipation": 27,
+     "arpeggio": 52,
+     "neighbor": 65,
+     "passing": 247,
+     "suspension": 293
+    },
+    "tenor": {
+     "anticipation": 34,
+     "arpeggio": 57,
+     "neighbor": 94,
+     "passing": 255,
+     "suspension": 368
+    }
+   },
    "phrases": 1748,
    "rhythm": {
     "strong": [
@@ -1607,8 +1699,8 @@
     "ii",
     "bvii",
     "bII",
-    "viio",
     "iio",
+    "viio",
     "i7",
     "vio",
     "V7",
@@ -1619,8 +1711,8 @@
     "V7/iv",
     "iiø7",
     "#iiio",
-    "bV",
     "viø7",
+    "bV",
     "IV7",
     "ii7",
     "iv7",

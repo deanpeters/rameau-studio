@@ -72,15 +72,15 @@ class Session:
         melody, locks = generate(style, bars, k, 4, seed=seed)
         h = harmonize(melody, style, key=k, locks=locks,
                       lock_reason="From your chord pattern; the melody was composed to fit it.")
-        result = self._render(melody, h, sound, groove, tempo, title)
+        result = self._render(melody, h, sound, groove, tempo, title, seed=seed or 1)
         result.explanation = (f"Melody composed by Rameau from your chord pattern, using {style.title}'s melodic "
                               f"habits (seed {seed}).\n\n" + result.explanation)
         return result
 
     def _render(self, melody, h: Harmonization, sound: Sound | None, groove: str | None, tempo: int,
-                title: str) -> Result:
+                title: str, seed: int = 1) -> Result:
         r = realize(h)
-        score = render.build_score(melody, h, r, title)
+        score = render.build_score(melody, h, r, title, seed=seed)
         self._next_run()
         midi = self._new_file("song")
         band_src = None
@@ -88,7 +88,9 @@ class Session:
         ts_text = ts.ratioString if ts else "4/4"
         melody_program = 73
         if sound is not None and not sound.is_groove:
-            render.write_ensemble_midi(score, midi, sound.voices, bpm=tempo)
+            from .performance import melody_style_from, perform
+
+            perform(score, h, sound.voices, tempo, midi, melody_style_from(h), seed=self._run)
         else:
             if sound is not None:
                 groove = sound.groove_for(int(ts_text.split("/")[0]))

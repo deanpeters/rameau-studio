@@ -46,6 +46,10 @@ class ModeStats:
     activity: list[float] = field(default_factory=lambda: [0.0, 0.0])  # [note onsets, voice-beats]
     modes: dict[str, int] = field(default_factory=dict)              # Dorian, Phrygian, ... -> pieces
     extended: list[int] = field(default_factory=lambda: [0, 0])     # [chords with 9/11/13/alterations, all]
+    # Ornaments in the lower voices, counted against the chances to use them:
+    # ornaments[voice][kind] = times used, opportunities[voice][kind] = times it was possible.
+    ornaments: dict[str, dict[str, int]] = field(default_factory=dict)
+    opportunities: dict[str, dict[str, int]] = field(default_factory=dict)
     mode_name: str = "major"
 
     # ---- probabilities -------------------------------------------------
@@ -92,6 +96,13 @@ class ModeStats:
         c = sum(v[0] for v in self.rhythm.values())
         t = sum(v[1] for v in self.rhythm.values())
         return (c + 1) / (t + 2)
+
+    def p_ornament(self, voice: str, kind: str) -> float | None:
+        """How often this voice used this ornament when it could (None if the style has no data)."""
+        chances = self.opportunities.get(voice, {}).get(kind, 0)
+        if chances < 20:
+            return None
+        return self.ornaments.get(voice, {}).get(kind, 0) / chances
 
     def p_interval(self, semitones: int) -> float:
         total = sum(self.melody_intervals.values())

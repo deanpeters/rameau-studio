@@ -36,6 +36,8 @@ def _blank():
         "phrases": 0,
         "activity": [0.0, 0.0],
         "modes": defaultdict(int),
+        "ornaments": defaultdict(lambda: defaultdict(int)),
+        "opportunities": defaultdict(lambda: defaultdict(int)),
     }
 
 
@@ -104,6 +106,8 @@ def count_score(score: stream.Score, acc: dict) -> bool:
     g["activity"][0] += sum(len(p.flatten().notes) for p in score.parts)
     g["activity"][1] += len(beats) * len(score.parts)
 
+    _count_ornaments(score, beats, chords, key_of, home, g)
+
     prev, prev_key, first, prev_pitch = None, None, True, None
     for b in beats:
         k = key_of.get(b.index, home)
@@ -143,6 +147,69 @@ def count_score(score: stream.Score, acc: dict) -> bool:
     return True
 
 
+VOICE_NAMES = ("alto", "tenor", "bass")
+
+
+def _count_ornaments(score: stream.Score, beats, chords, key_of, home, acc) -> None:
+    """What the lower voices do between beats, counted against the chances they had.
+
+    passing      a note stepping through the gap between two beat notes a third apart
+    neighbor     a step away and back to the same note
+    anticipation the next beat's note arriving early
+    arpeggio     a skip to another note of the same chord
+    suspension   a note held over from the previous chord that resolves down by step
+    """
+    parts = list(score.parts)
+    lower = parts[1:4] if len(parts) >= 4 else parts[1:]
+    names = VOICE_NAMES if len(lower) == 3 else (("bass",) if len(lower) == 1 else ("alto", "bass"))
+    for voice, part in zip(names, lower):
+        notes = part.flatten().notes.stream()
+        for i in range(len(beats) - 1):
+            b, nb = beats[i], beats[i + 1]
+            if b.duration < 1:
+                continue
+            here = notes.getElementAtOrBefore(b.offset)
+            nxt = notes.getElementAtOrBefore(nb.offset)
+            if here is None or nxt is None or here.offset + here.quarterLength <= b.offset:
+                continue
+            a, n = here.pitches[-1].midi, nxt.pitches[-1].midi
+            # (music21 rounds offsets, so filter explicitly rather than with a tiny search window)
+            inside = [x for x in notes.getElementsByOffset(b.offset, nb.offset, includeEndBoundary=False)
+                      if b.offset + 1e-6 < float(x.offset) < nb.offset - 1e-6]
+            x = inside[0].pitches[-1].midi if inside else None
+            opp, used = acc["opportunities"][voice], acc["ornaments"][voice]
+            gap = n - a
+            if 3 <= abs(gap) <= 4:
+                opp["passing"] += 1
+                if x is not None and min(a, n) < x < max(a, n):
+                    used["passing"] += 1
+            if gap == 0:
+                opp["neighbor"] += 1
+                if x is not None and 1 <= abs(x - a) <= 2:
+                    used["neighbor"] += 1
+            if gap != 0:
+                opp["anticipation"] += 1
+                if x is not None and x == n:
+                    used["anticipation"] += 1
+            opp["arpeggio"] += 1
+            c = chords.getElementAtOrBefore(b.offset)
+            if x is not None and c is not None and x % 12 in {p.pitchClass for p in c.pitches} and abs(x - a) > 2 \
+                    and x != n:
+                used["arpeggio"] += 1
+            # suspension: the note at this beat began earlier and steps down to the real chord tone.
+            # Judge the dissonance against the chord it resolves into (the chord at the beat contains it).
+            if i > 0:
+                held = here.offset < b.offset - 1e-6
+                target = x if x is not None else n
+                res_time = float(inside[0].offset) if inside else nb.offset
+                c_res = chords.getElementAtOrBefore(res_time)
+                if (a - target) in (1, 2):
+                    opp["suspension"] += 1
+                    if held and c_res is not None and a % 12 not in {p.pitchClass for p in c_res.pitches} \
+                            and target % 12 in {p.pitchClass for p in c_res.pitches}:
+                        used["suspension"] += 1
+
+
 def _finish(raw: dict) -> ModeStats:
     keep = {c for c, n in raw["chord_counts"].items() if n >= MIN_CHORD_COUNT}
 
@@ -173,6 +240,8 @@ def _finish(raw: dict) -> ModeStats:
         activity=raw["activity"],
         modes=plain(raw["modes"]),
         extended=raw.get("extended", [0, 0]),
+        ornaments=plain(raw.get("ornaments", {})),
+        opportunities=plain(raw.get("opportunities", {})),
     )
 
 

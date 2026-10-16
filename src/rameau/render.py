@@ -103,12 +103,12 @@ def _voice_part(melody: stream.Part, h: Harmonization, r: Realization, voice: in
 
 
 def build_score(melody: stream.Part, h: Harmonization, r: Realization, title: str = "Untitled",
-                texture=None) -> stream.Score:
+                texture=None, seed: int = 1) -> stream.Score:
     """Four-part score. ``texture`` (see texture.py) defaults to the style's own texture."""
     from .texture import apply_texture, texture_for
 
     texture = texture or texture_for(h.style.name)
-    events = apply_texture(h, r, texture)
+    events = apply_texture(h, r, texture, seed=seed)
     score = stream.Score()
     score.metadata = metadata.Metadata()
     score.metadata.title = title

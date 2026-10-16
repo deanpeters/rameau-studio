@@ -316,6 +316,52 @@
     "iii": 5,
     "vi": 6
    },
+   "opportunities": {
+    "alto": {
+     "anticipation": 1044,
+     "arpeggio": 1854,
+     "neighbor": 810,
+     "passing": 207,
+     "suspension": 288
+    },
+    "bass": {
+     "anticipation": 1157,
+     "arpeggio": 2187,
+     "neighbor": 1030,
+     "passing": 125,
+     "suspension": 224
+    },
+    "tenor": {
+     "anticipation": 700,
+     "arpeggio": 1061,
+     "neighbor": 361,
+     "passing": 148,
+     "suspension": 216
+    }
+   },
+   "ornaments": {
+    "alto": {
+     "anticipation": 237,
+     "arpeggio": 221,
+     "neighbor": 38,
+     "passing": 49,
+     "suspension": 86
+    },
+    "bass": {
+     "anticipation": 303,
+     "arpeggio": 263,
+     "neighbor": 30,
+     "passing": 46,
+     "suspension": 60
+    },
+    "tenor": {
+     "anticipation": 293,
+     "arpeggio": 59,
+     "neighbor": 21,
+     "passing": 57,
+     "suspension": 53
+    }
+   },
    "phrases": 143,
    "rhythm": {
     "strong": [
@@ -438,11 +484,11 @@
     "V7/V",
     "ii",
     "IV",
-    "V7/ii",
     "V7/IV",
+    "V7/ii",
     "iii",
-    "vi7",
     "V7/vi",
+    "vi7",
     "iv",
     "viio",
     "#io7",
@@ -702,6 +748,52 @@
     "home": 103,
     "iv": 7,
     "v": 3
+   },
+   "opportunities": {
+    "alto": {
+     "anticipation": 790,
+     "arpeggio": 1386,
+     "neighbor": 596,
+     "passing": 168,
+     "suspension": 207
+    },
+    "bass": {
+     "anticipation": 686,
+     "arpeggio": 1612,
+     "neighbor": 926,
+     "passing": 62,
+     "suspension": 64
+    },
+    "tenor": {
+     "anticipation": 792,
+     "arpeggio": 1330,
+     "neighbor": 538,
+     "passing": 105,
+     "suspension": 242
+    }
+   },
+   "ornaments": {
+    "alto": {
+     "anticipation": 150,
+     "arpeggio": 183,
+     "neighbor": 18,
+     "passing": 16,
+     "suspension": 36
+    },
+    "bass": {
+     "anticipation": 150,
+     "arpeggio": 37,
+     "neighbor": 3,
+     "passing": 22,
+     "suspension": 12
+    },
+    "tenor": {
+     "anticipation": 138,
+     "arpeggio": 164,
+     "neighbor": 27,
+     "passing": 26,
+     "suspension": 25
+    }
    },
    "phrases": 134,
    "rhythm": {

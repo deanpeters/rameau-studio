@@ -111,10 +111,36 @@ def _candidates(s: int, ct: ChordTones, inv_probs: dict[int, float], leading_pc:
     return out[:MAX_CANDIDATES]
 
 
+LINE = {
+    "bass_step": -1.2,        # a bass that moves by step is a melody, not just roots
+    "bass_static": 1.0,       # bass sitting still under a new chord
+    "contrary_outer": -1.5,   # bass moving against the melody: the heart of independent voices
+    "similar_outer": 0.8,     # bass shadowing the melody
+    "all_same_dir": 2.5,      # all four voices moving the same way sounds like strummed blocks
+    "inner_step": -0.3,       # inner voices that move by step sing; holding is fine but not rewarded
+}
+
+
 def _transition_cost(p: Voicing, c: Voicing, leading_pc: int | None, prev_seventh: int | None) -> float:
     cost = 0.0
-    # smoothness: inner voices count most, bass a little
-    cost += 1.0 * (abs(c[1] - p[1]) + abs(c[2] - p[2])) + 0.3 * abs(c[3] - p[3])
+    # smoothness: big jumps in inner voices are awkward (but moving by step is welcome)
+    for i in (1, 2):
+        d = abs(c[i] - p[i])
+        cost += 0.6 * d if d > 2 else (LINE["inner_step"] if d in (1, 2) else 0.0)
+    # the bass as a line
+    bd = c[3] - p[3]
+    if bd == 0:
+        cost += LINE["bass_static"]
+    elif abs(bd) <= 2:
+        cost += LINE["bass_step"]
+    else:
+        cost += 0.15 * abs(bd)
+    sd = c[0] - p[0]
+    if sd and bd:
+        cost += LINE["contrary_outer"] if sd * bd < 0 else LINE["similar_outer"]
+    dirs = [c[i] - p[i] for i in range(4)]
+    if all(d > 0 for d in dirs) or all(d < 0 for d in dirs):
+        cost += LINE["all_same_dir"]
     for i in range(4):
         for j in range(i + 1, 4):
             if p[i] == c[i] or p[j] == c[j]:

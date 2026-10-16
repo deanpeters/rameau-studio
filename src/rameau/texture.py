@@ -76,7 +76,77 @@ def _passing_note(a: int, b: int, scale: set[int]) -> int | None:
     return mids[len(mids) // 2] if mids else None
 
 
-def apply_texture(h: Harmonization, r: Realization, texture: Texture) -> list[list[list[Event]]]:
+VOICE_KEYS = {1: "alto", 2: "tenor", 3: "bass"}
+LEARNED_TEXTURES = {"chorale", "polyphony", "continuo", "romantic"}
+MAX_ORNAMENTS_PER_BEAT = 2
+
+
+def _diatonic_step(a: int, direction: int, scale: set[int]) -> int | None:
+    for d in (1, 2):
+        x = a + direction * d
+        if x % 12 in scale:
+            return x
+    return None
+
+
+def _learned_ornaments(h: Harmonization, r: Realization, ev, scale: set[int], seed: int) -> bool:
+    """Ornament the lower voices at the rates the style's own corpus uses them. Returns False when the
+    style has no ornament data (e.g. styles learned from chord charts)."""
+    import random
+
+    stats = h.style.mode(h.key.mode)
+    if not any(stats.p_ornament(v, "passing") is not None for v in VOICE_KEYS.values()):
+        return False
+    rng = random.Random(seed)
+    V = r.voicings
+    T = len(V)
+    for t in range(T - 1):
+        b = h.choices[t].beat
+        if b.duration < 1 or b.phrase_end:
+            continue
+        used = 0
+        changing = h.choices[t + 1].label != h.choices[t].label
+        for v in rng.sample([3, 2, 1], 3):  # no fixed voice always gets first pick
+            if used >= MAX_ORNAMENTS_PER_BEAT or len(ev[v][t]) != 1:
+                continue
+            name = VOICE_KEYS[v]
+            a, n = V[t][v], V[t + 1][v]
+            chord_pcs = {p.pitchClass for p in roman.RomanNumeral(h.choices[t].label, h.key).pitches}
+            options = []  # (probability, kind, second-half note)
+            mid = _passing_note(a, n, scale)
+            if mid is not None:
+                options.append((stats.p_ornament(name, "passing"), "passing", mid))
+            if a == n:
+                step = _diatonic_step(a, -1 if rng.random() < 0.6 else 1, scale)
+                if step is not None:
+                    options.append((stats.p_ornament(name, "neighbor"), "neighbor", step))
+            if a != n:
+                options.append((stats.p_ornament(name, "anticipation"), "anticipation", n))
+            arps = [x for x in range(a - 7, a + 8) if x % 12 in chord_pcs and x not in (a, n) and abs(x - a) > 2]
+            if arps:
+                options.append((stats.p_ornament(name, "arpeggio"), "arpeggio", rng.choice(arps)))
+            for p, kind, x in options:
+                if p is None or rng.random() >= p or _parallel_risk(V, t, v, x):
+                    continue
+                d = ev[v][t][0].dur / 2
+                ev[v][t] = [Event(0.0, d, a, ev[v][t][0].hold), Event(d, d, x, False)]
+                used += 1
+                break
+        # Suspensions: hold the previous note into a changing chord, then resolve down by step.
+        if t > 0 and h.choices[t].label != h.choices[t - 1].label:
+            for v in (1, 2, 3):
+                if len(ev[v][t]) != 1:
+                    continue
+                prev, cur = V[t - 1][v], V[t][v]
+                p = stats.p_ornament(VOICE_KEYS[v], "suspension")
+                if p and prev - cur in (1, 2) and rng.random() < p:
+                    d = ev[v][t][0].dur / 2
+                    ev[v][t] = [Event(0.0, d, prev, True), Event(d, d, cur, False)]
+                    break
+    return True
+
+
+def apply_texture(h: Harmonization, r: Realization, texture: Texture, seed: int = 1) -> list[list[list[Event]]]:
     """events[voice][beat] -> notes for voices 1..3 (alto, tenor, bass). Index 0 (soprano) is empty."""
     T = len(h.choices)
     scale = _scale_pcs(h.key)
@@ -94,8 +164,10 @@ def apply_texture(h: Harmonization, r: Realization, texture: Texture) -> list[li
             else:
                 ev[v][t] = [Event(0.0, dur, V[t][v], hold)]
 
-    # Passing notes: fill a melodic third with the step in between (bass first, then tenor, alto).
-    if texture.passing:
+    # Ornaments learned from the style's corpus (passing, neighbor, anticipation, arpeggio, suspension),
+    # used at the corpus's own rates. Fall back to the simple rule-based passing notes otherwise.
+    learned = texture.key in LEARNED_TEXTURES and _learned_ornaments(h, r, ev, scale, seed)
+    if texture.passing and not learned:
         for t in range(T - 1):
             if h.choices[t].beat.duration < 1 or h.choices[t + 1].beat.phrase_end and texture.suspensions:
                 continue

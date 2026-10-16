@@ -651,6 +651,52 @@
     "iii": 1,
     "vi": 40
    },
+   "opportunities": {
+    "alto": {
+     "anticipation": 15389,
+     "arpeggio": 30448,
+     "neighbor": 15059,
+     "passing": 4191,
+     "suspension": 6533
+    },
+    "bass": {
+     "anticipation": 14065,
+     "arpeggio": 27528,
+     "neighbor": 13463,
+     "passing": 3780,
+     "suspension": 5202
+    },
+    "tenor": {
+     "anticipation": 14577,
+     "arpeggio": 28388,
+     "neighbor": 13811,
+     "passing": 3897,
+     "suspension": 5954
+    }
+   },
+   "ornaments": {
+    "alto": {
+     "anticipation": 328,
+     "arpeggio": 126,
+     "neighbor": 433,
+     "passing": 2007,
+     "suspension": 2107
+    },
+    "bass": {
+     "anticipation": 131,
+     "arpeggio": 83,
+     "neighbor": 273,
+     "passing": 1785,
+     "suspension": 1856
+    },
+    "tenor": {
+     "anticipation": 245,
+     "arpeggio": 116,
+     "neighbor": 401,
+     "passing": 1773,
+     "suspension": 2053
+    }
+   },
    "phrases": 4314,
    "rhythm": {
     "strong": [
@@ -1878,6 +1924,52 @@
     "home": 3511,
     "iv": 357,
     "v": 209
+   },
+   "opportunities": {
+    "alto": {
+     "anticipation": 17560,
+     "arpeggio": 33910,
+     "neighbor": 16350,
+     "passing": 4811,
+     "suspension": 7563
+    },
+    "bass": {
+     "anticipation": 15238,
+     "arpeggio": 29820,
+     "neighbor": 14582,
+     "passing": 3901,
+     "suspension": 5783
+    },
+    "tenor": {
+     "anticipation": 16112,
+     "arpeggio": 30738,
+     "neighbor": 14626,
+     "passing": 4089,
+     "suspension": 6669
+    }
+   },
+   "ornaments": {
+    "alto": {
+     "anticipation": 388,
+     "arpeggio": 132,
+     "neighbor": 487,
+     "passing": 2277,
+     "suspension": 2500
+    },
+    "bass": {
+     "anticipation": 135,
+     "arpeggio": 70,
+     "neighbor": 264,
+     "passing": 1869,
+     "suspension": 2184
+    },
+    "tenor": {
+     "anticipation": 227,
+     "arpeggio": 100,
+     "neighbor": 363,
+     "passing": 1924,
+     "suspension": 2299
+    }
    },
    "phrases": 4417,
    "rhythm": {

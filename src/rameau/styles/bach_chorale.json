@@ -629,6 +629,52 @@
     "other": 3,
     "vi": 36
    },
+   "opportunities": {
+    "alto": {
+     "anticipation": 6111,
+     "arpeggio": 10054,
+     "neighbor": 3943,
+     "passing": 1623,
+     "suspension": 2864
+    },
+    "bass": {
+     "anticipation": 8066,
+     "arpeggio": 10199,
+     "neighbor": 2133,
+     "passing": 2204,
+     "suspension": 2274
+    },
+    "tenor": {
+     "anticipation": 6447,
+     "arpeggio": 10083,
+     "neighbor": 3636,
+     "passing": 1798,
+     "suspension": 2601
+    }
+   },
+   "ornaments": {
+    "alto": {
+     "anticipation": 566,
+     "arpeggio": 180,
+     "neighbor": 320,
+     "passing": 974,
+     "suspension": 460
+    },
+    "bass": {
+     "anticipation": 92,
+     "arpeggio": 433,
+     "neighbor": 276,
+     "passing": 1733,
+     "suspension": 138
+    },
+    "tenor": {
+     "anticipation": 403,
+     "arpeggio": 281,
+     "neighbor": 208,
+     "passing": 1240,
+     "suspension": 255
+    }
+   },
    "phrases": 1316,
    "rhythm": {
     "strong": [
@@ -1137,21 +1183,21 @@
     "viio",
     "V/ii",
     "iv",
-    "IVM7",
     "V7/IV",
+    "IVM7",
     "v",
     "V7/ii",
     "bVII",
     "#ivo",
     "viiø7",
     "bVI",
-    "iiiø7",
     "IM7",
+    "iiiø7",
     "iii7",
     "iiio",
     "V7/vi",
-    "#io",
     "#vo7",
+    "#io",
     "i",
     "bIII",
     "#io7",
@@ -1918,6 +1964,52 @@
     "other": 1,
     "v": 23
    },
+   "opportunities": {
+    "alto": {
+     "anticipation": 5464,
+     "arpeggio": 8958,
+     "neighbor": 3494,
+     "passing": 1471,
+     "suspension": 2680
+    },
+    "bass": {
+     "anticipation": 7221,
+     "arpeggio": 8963,
+     "neighbor": 1742,
+     "passing": 2018,
+     "suspension": 2149
+    },
+    "tenor": {
+     "anticipation": 5924,
+     "arpeggio": 8959,
+     "neighbor": 3035,
+     "passing": 1626,
+     "suspension": 2526
+    }
+   },
+   "ornaments": {
+    "alto": {
+     "anticipation": 529,
+     "arpeggio": 142,
+     "neighbor": 379,
+     "passing": 917,
+     "suspension": 416
+    },
+    "bass": {
+     "anticipation": 53,
+     "arpeggio": 430,
+     "neighbor": 327,
+     "passing": 1665,
+     "suspension": 97
+    },
+    "tenor": {
+     "anticipation": 381,
+     "arpeggio": 334,
+     "neighbor": 244,
+     "passing": 1155,
+     "suspension": 250
+    }
+   },
    "phrases": 1157,
    "rhythm": {
     "strong": [
@@ -2583,15 +2675,15 @@
     "III+",
     "bii",
     "#v",
-    "V7/v",
     "v7",
+    "V7/v",
     "bv",
-    "IIIM7",
-    "#i",
     "#IV",
+    "#i",
+    "IIIM7",
     "#V",
-    "V7/VI",
     "bii7",
+    "V7/VI",
     "VIb7",
     "#iiio"
    ]

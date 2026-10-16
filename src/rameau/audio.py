@@ -98,7 +98,10 @@ def render_wav(midi: Path, wav: Path, sample_rate: int = 44100, gain: float = 0.
     if not sf:
         raise AudioUnavailable(f"No SoundFont found. Put a .sf2 file in {user_data_dir() / 'soundfonts'} "
                                "or set RAMEAU_SOUNDFONT.")
-    cmd = [fs, "-ni", "-g", str(gain), "-r", str(sample_rate), "-F", str(wav), str(sf), str(midi)]
+    # Chorus thickens every note into a haze, and full reverb smears moving lines: keep a light room.
+    effects = ["-o", "synth.chorus.active=0", "-o", "synth.reverb.room-size=0.45", "-o", "synth.reverb.level=0.5",
+               "-o", "synth.reverb.damp=0.4"]
+    cmd = [fs, "-ni", "-g", str(gain), "-r", str(sample_rate), *effects, "-F", str(wav), str(sf), str(midi)]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0 or not Path(wav).exists():
         raise AudioUnavailable(f"FluidSynth failed: {proc.stderr.strip() or proc.stdout.strip()}")
