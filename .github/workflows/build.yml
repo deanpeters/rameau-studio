@@ -12,6 +12,7 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -57,35 +58,16 @@ jobs:
       - name: Build
         run: uv run --python 3.12 pyinstaller packaging/rameau.spec --noconfirm --distpath dist --workpath build
 
-      - name: Smoke test (macOS)
-        if: runner.os == 'macOS'
+      - name: Smoke test (command-line modes, with time limits)
+        timeout-minutes: 10
+        shell: bash
         run: |
-          APP="dist/Rameau Studio.app/Contents/MacOS/RameauStudio"
-          "$APP" styles
-          "$APP" harmonize src/rameau/samples/twinkle.abc --out smoke --svg
-          "$APP" band "| Dm7 G7 | CM7 |" --groove BossaNova --out smoke/band.mid
-          ls -la smoke
-          "dist/Rameau Studio.app/Contents/Resources/fluidsynth/bin/fluidsynth" --version | head -1 || \
-            "dist/Rameau Studio.app/Contents/Frameworks/fluidsynth/bin/fluidsynth" --version | head -1
-      - name: Smoke test (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $exe = "dist/RameauStudio/RameauStudio.exe"
-          $p = Start-Process $exe -ArgumentList 'harmonize','src/rameau/samples/twinkle.abc','--out','smoke','--svg' -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "harmonize failed: $($p.ExitCode)" }
-          $p = Start-Process $exe -ArgumentList 'band','"| Dm7 G7 | CM7 |"','--groove','BossaNova','--out','smoke/band.mid' -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "band failed: $($p.ExitCode)" }
-          Get-ChildItem smoke
-          if (-not (Test-Path smoke/band.mid)) { throw "no band MIDI" }
-          Get-ChildItem -Recurse dist/RameauStudio -Filter fluidsynth.exe | Select-Object -First 1
-      - name: Smoke test (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          dist/RameauStudio/RameauStudio styles
-          dist/RameauStudio/RameauStudio harmonize src/rameau/samples/twinkle.abc --out smoke --svg
-          dist/RameauStudio/RameauStudio band "| Dm7 G7 | CM7 |" --groove BossaNova --out smoke/band.mid
-          ls -la smoke
+          case "${{ runner.os }}" in
+            macOS)   EXE="dist/Rameau Studio.app/Contents/MacOS/RameauStudio" ;;
+            Windows) EXE="dist/RameauStudio/RameauStudio.exe" ;;
+            *)       EXE="dist/RameauStudio/RameauStudio" ;;
+          esac
+          uv run --python 3.12 python packaging/smoke_test.py "$EXE"
 
       - name: Package (macOS)
         if: runner.os == 'macOS'
