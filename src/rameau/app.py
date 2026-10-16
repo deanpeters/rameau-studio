@@ -8,7 +8,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QUrl, Signal, Slot
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QAction, QFont, QKeySequence
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -53,10 +53,16 @@ class _Signals(QObject):
 
 
 class Job(QRunnable):
-    """Run a function off the UI thread."""
+    """Run a function off the UI thread.
+
+    Start jobs with ``MainWindow.start_job`` (not ``pool.start`` directly): it keeps the job and its
+    signal object alive until the result has been delivered on the UI thread. Letting Python collect
+    them earlier crashes Qt when it delivers the queued signal (seen as SIGSEGV in QObjectWrapper::event).
+    """
 
     def __init__(self, fn, *args, **kwargs):
         super().__init__()
+        self.setAutoDelete(False)
         self.fn, self.args, self.kwargs = fn, args, kwargs
         self.signals = _Signals()
 
@@ -199,7 +205,7 @@ class AISettingsDialog(QDialog):
         job = Job(ai.list_models, name)
         job.signals.done.connect(lambda models: self._models_ready(name, models))
         job.signals.failed.connect(lambda msg: self.status.setText(f"'{name}': {msg.splitlines()[0]}"))
-        self.main.pool.start(job)
+        self.main.start_job(job)
 
     def _models_ready(self, name: str, models) -> None:
         self.main._model_cache[name] = models
@@ -225,6 +231,8 @@ class MainWindow(QMainWindow):
         self.session = Session()
         self.result: Result | None = None
         self.pool = QThreadPool.globalInstance()
+        self._jobs: set = set()
+        QApplication.instance().aboutToQuit.connect(lambda: self.pool.waitForDone(10000))
         self.styles = {name: load_style(name) for name in sorted(builtin_styles())}
         self.source_path: Path | None = None
 
@@ -241,6 +249,17 @@ class MainWindow(QMainWindow):
         self._load_sample("old_hundredth.abc")
         self._refresh_fingerprint()
         self.statusBar().showMessage("Pick a melody and a style, then press Harmonize.")
+
+    def start_job(self, job: "Job") -> None:
+        """Run a background job, keeping it alive until its result reaches the UI thread."""
+        self._jobs.add(job)
+
+        def release(*_):
+            QTimer.singleShot(0, lambda: self._jobs.discard(job))
+
+        job.signals.done.connect(release)
+        job.signals.failed.connect(release)
+        self.pool.start(job)
 
     # ---------------------------------------------------------------- layout
     def _build_toolbar(self) -> None:
@@ -416,6 +435,20 @@ class MainWindow(QMainWindow):
         ml.addWidget(ai_btn)
         left.addTab(mel_page, "Melody")
 
+        from .stepentry_ui import StepEntryWidget
+
+        self.step_editor = StepEntryWidget()
+        self.step_editor.changed.connect(self._step_changed)
+        step_page = QWidget()
+        sl = QVBoxLayout(step_page)
+        sl.setContentsMargins(0, 0, 0, 0)
+        load_btn = QPushButton("Edit the Melody tab's tune here")
+        load_btn.setToolTip("Load the current ABC melody into the note editor")
+        load_btn.clicked.connect(self._load_into_step_editor)
+        sl.addWidget(load_btn)
+        sl.addWidget(self.step_editor, 1)
+        left.addTab(step_page, "Step entry")
+
         chord_page = QWidget()
         cl2 = QVBoxLayout(chord_page)
         cl2.setContentsMargins(0, 0, 0, 0)
@@ -430,15 +463,20 @@ class MainWindow(QMainWindow):
         invent.setToolTip("Let the chosen style write an 8-bar progression from its own habits")
         invent.clicked.connect(self._invent)
         row.addWidget(invent)
+        open_chart = QPushButton("Open iReal Pro chart…")
+        open_chart.setToolTip("Load a song from an iReal Pro playlist (exported as text or HTML) as Roman numerals")
+        open_chart.clicked.connect(self._open_ireal)
+        row.addWidget(open_chart)
         self.pattern_mode = QComboBox()
         self.pattern_mode.addItems(["Compose melody + voices", "Band plays the chords only"])
         row.addWidget(self.pattern_mode)
         cl2.addLayout(row)
         left.addTab(chord_page, "Chords")
-        left.setMinimumWidth(320)
+        left.setMinimumWidth(380)
         self.input_tabs = left
         self.seed = 0
-        left.currentChanged.connect(lambda i: self.go_btn.setText("Harmonize" if i == 0 else "Compose"))
+        left.currentChanged.connect(lambda i: self.go_btn.setText("Harmonize" if i in (0, 1) else "Compose"))
+        left.currentChanged.connect(lambda i: i == 1 and self.step_editor.setFocus())
         split.addWidget(left)
 
         # centre: score / fingerprint
@@ -517,7 +555,7 @@ class MainWindow(QMainWindow):
         right.setMinimumWidth(340)
         split.addWidget(right)
 
-        split.setSizes([330, 760, 380])
+        split.setSizes([440, 700, 360])
         central = QWidget()
         cl = QVBoxLayout(central)
         cl.setContentsMargins(6, 4, 6, 0)
@@ -566,7 +604,7 @@ class MainWindow(QMainWindow):
         if snd is None and groove is None:
             self._update_hint()
             return
-        if self.input_tabs.currentIndex() == 0:
+        if self.input_tabs.currentIndex() in (0, 1):  # Melody (ABC) or Step entry
             job = Job(self.session.harmonize_melody, self.melody_edit.toPlainText(), style, key, snd, groove,
                       self.tempo.value(), self._title(), self.source_path)
             self.statusBar().showMessage(f"Harmonizing in {style.title} style…")
@@ -589,7 +627,7 @@ class MainWindow(QMainWindow):
         self.go_btn.setEnabled(False)
         job.signals.done.connect(self._finished)
         job.signals.failed.connect(self._failed)
-        self.pool.start(job)
+        self.start_job(job)
 
     @staticmethod
     def _key_arg(text: str) -> str:
@@ -611,7 +649,7 @@ class MainWindow(QMainWindow):
         job = Job(render_wav, result.midi, result.midi.with_suffix(".wav"))
         job.signals.done.connect(self._audio_ready)
         job.signals.failed.connect(lambda msg: self.statusBar().showMessage(f"No sound: {msg.splitlines()[0]}"))
-        self.pool.start(job)
+        self.start_job(job)
 
     @Slot(str)
     def _failed(self, msg: str) -> None:
@@ -642,7 +680,7 @@ class MainWindow(QMainWindow):
         for c in h.choices:
             mark = " 🔒" if c.locked else ""
             cad = "  ⟵ cadence" if c.cadence else ""
-            item = QListWidgetItem(f"{c.beat.label:9} {c.symbol:8} {c.label:7} {c.confidence:4.0%}{mark}{cad}")
+            item = QListWidgetItem(f"{c.beat.label:9} {c.symbol:8} {c.name:7} {c.confidence:4.0%}{mark}{cad}")
             item.setFont(QFont("Menlo" if sys.platform == "darwin" else "Consolas", 11))
             self.chord_list.addItem(item)
         self.chord_list.setCurrentRow(0)
@@ -656,11 +694,11 @@ class MainWindow(QMainWindow):
             return
         c = self.result.harmonization.choices[row]
         alts = "".join(
-            f'<li><a href="alt:{row}:{html.escape(a.label)}">{html.escape(a.symbol)} ({html.escape(a.label)})</a> '
+            f'<li><a href="alt:{row}:{html.escape(a.label)}">{html.escape(a.symbol)} ({html.escape(a.name)})</a> '
             f"{a.probability:.0%}</li>" for a in c.alternatives)
         reasons = "".join(f"<li>{html.escape(r)}</li>" for r in c.reasons)
         self.why.setHtml(
-            f"<h3>{html.escape(c.symbol)} &nbsp;<small>{html.escape(c.label)} · {html.escape(c.function)}</small></h3>"
+            f"<h3>{html.escape(c.symbol)} &nbsp;<small>{html.escape(c.name)} · {html.escape(c.function)}</small></h3>"
             + (f"<p><b>{html.escape(c.cadence)}</b></p>" if c.cadence else "")
             + f"<p>Melody note is {html.escape(c.melody_role)}. Confidence {c.confidence:.0%}.</p>"
             f"<ul>{reasons}</ul><p><b>Try instead</b> (click to lock it in and re-harmonize):</p><ul>{alts}</ul>")
@@ -687,6 +725,25 @@ class MainWindow(QMainWindow):
         self.fp_view.setHtml(f"<html><head>{PAGE_CSS}</head><body>{intro}"
                              f"{fingerprint_html(list(self.styles.values()))}</body></html>")
 
+    # ---------------------------------------------------------------- step entry
+    def _step_changed(self, abc: str) -> None:
+        if self.input_tabs.currentIndex() == 1:  # only while editing there, so samples aren't overwritten
+            self.melody_edit.setPlainText(abc)
+            self.source_path = None
+            self.session.locks.clear()
+
+    def _load_into_step_editor(self) -> None:
+        from .music import load_melody
+        from .stepentry import MelodyDoc
+
+        try:
+            part = load_melody(self.source_path) if self.source_path else load_melody(self.melody_edit.toPlainText())
+        except Exception as e:
+            QMessageBox.warning(self, "Rameau", f"Couldn't read the melody: {e}")
+            return
+        self.step_editor.load(MelodyDoc.from_part(part, self._title()))
+        self.step_editor.setFocus()
+
     # ---------------------------------------------------------------- patterns
     def _invent(self) -> None:
         from .generate import invent_progression
@@ -699,12 +756,40 @@ class MainWindow(QMainWindow):
         for i in range(0, len(bars), 4):
             cells = []
             for bar in bars[i:i + 4]:
-                compact = [c for j, c in enumerate(bar) if j == 0 or c != bar[j - 1]]
+                from .music import pretty
+
+                compact = [pretty(c) for j, c in enumerate(bar) if j == 0 or c != bar[j - 1]]
                 cells.append(" ".join(compact))
             lines.append("| " + " | ".join(cells) + " |")
         self.chord_edit.setPlainText("\n".join(lines))
         self.hint.setText(f"💡 Invented from {self.styles[style_key].title}'s own habits: its favourite moves, "
                           "how often it changes chord, and how its phrases end. Press Compose to hear it.")
+
+    def _open_ireal(self) -> None:
+        from .ireal import parse_file, song_key, song_to_pattern
+
+        path, _ = QFileDialog.getOpenFileName(self, "Open iReal Pro playlist", str(Path.home()),
+                                              "iReal Pro playlists (*.txt *.html *.htm);;All files (*)")
+        if not path:
+            return
+        try:
+            songs = parse_file(Path(path))
+        except Exception as e:
+            QMessageBox.warning(self, "Rameau", f"That file doesn't contain an iReal Pro playlist ({e}).")
+            return
+        titles = [f"{s.title}  ({s.style}, {s.key})" for s in songs]
+        choice, ok = QInputDialog.getItem(self, "Choose a song", f"{len(songs)} songs:", titles, 0, False)
+        if not ok:
+            return
+        song = songs[titles.index(choice)]
+        k = song_key(song)
+        self.chord_edit.setPlainText(song_to_pattern(song))
+        name = k.tonic.name.replace("-", "b")
+        label = f"{name} {k.mode}"
+        if self.key_box.findText(label) >= 0:
+            self.key_box.setCurrentText(label)
+        self.hint.setText(f"💡 {song.title}: shown as Roman numerals in {label}, so you can see the harmony's "
+                          "shape in any key. Press Compose to hear a melody written over it.")
 
     # ---------------------------------------------------------------- AI mode
     def _ai_settings(self) -> None:
@@ -753,7 +838,7 @@ class MainWindow(QMainWindow):
         job.signals.done.connect(lambda models: self._models_loaded(profile, models))
         job.signals.failed.connect(lambda msg: self.statusBar().showMessage(
             f"Model list unavailable: {msg.splitlines()[0]}"))
-        self.pool.start(job)
+        self.start_job(job)
 
     def _models_loaded(self, profile: str, models) -> None:
         from . import ai
@@ -774,7 +859,7 @@ class MainWindow(QMainWindow):
         job = Job(ai.compose_melody, text, style.title, 8)
         job.signals.done.connect(self._ai_composed)
         job.signals.failed.connect(lambda msg: QMessageBox.information(self, "AI mode", msg.split("\n\n")[0]))
-        self.pool.start(job)
+        self.start_job(job)
 
     @Slot(object)
     def _ai_composed(self, result) -> None:
@@ -801,7 +886,7 @@ class MainWindow(QMainWindow):
         job.signals.done.connect(lambda answer: self._tutor_answer(q, answer))
         job.signals.failed.connect(lambda msg: self.tutor_log.append(
             f"<p style='color:#b35'><b>AI mode:</b> {html.escape(msg.split(chr(10) * 2)[0])}</p>"))
-        self.pool.start(job)
+        self.start_job(job)
 
     def _tutor_answer(self, question: str, answer: str) -> None:
         from .ai import TutorTurn
@@ -874,8 +959,17 @@ def main() -> int:
         if env.get("RAMEAU_SELFTEST_SOUND"):
             i = w.accomp_box.findText("   " + env["RAMEAU_SELFTEST_SOUND"])
             w.accomp_box.setCurrentIndex(i)
-        if env.get("RAMEAU_SELFTEST_TAB") == "chords":
+        if env.get("RAMEAU_SELFTEST_TAB") == "step":
+            from PySide6.QtTest import QTest
+
+            w._load_into_step_editor()
             w.input_tabs.setCurrentIndex(1)
+            ed = w.step_editor
+            for k in "4EDC":
+                QTest.keyClick(ed, k)
+            QTest.keyClick(ed, Qt.Key_F, Qt.ShiftModifier)
+        if env.get("RAMEAU_SELFTEST_TAB") == "chords":
+            w.input_tabs.setCurrentIndex(2)
             w._invent()
         if env.get("RAMEAU_SELFTEST_REPEAT"):
             # stress test: re-render while audio is playing (regression for the overwritten-WAV crash)

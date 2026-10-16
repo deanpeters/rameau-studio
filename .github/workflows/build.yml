@@ -1,0 +1,110 @@
+name: build installers
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, name: macOS (Apple Silicon), artifact: RameauStudio-macOS-arm64.zip }
+          - { os: windows-latest, name: Windows, artifact: RameauStudio-Windows-x64.zip }
+          - { os: ubuntu-latest, name: Linux, artifact: RameauStudio-Linux-x64.tar.gz }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --python 3.12
+
+      - name: Bundle the GeneralUser GS SoundFont (license allows redistribution)
+        shell: bash
+        run: |
+          mkdir -p packaging/assets
+          curl -sSL -o packaging/assets/GeneralUser-GS.sf2 \
+            https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/main/GeneralUser-GS.sf2
+
+      - name: FluidSynth (macOS, bundled)
+        if: runner.os == 'macOS'
+        run: |
+          brew install fluid-synth dylibbundler
+          packaging/bundle_fluidsynth_macos.sh
+      - name: FluidSynth (Windows, bundled)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $rel = Invoke-RestMethod https://api.github.com/repos/FluidSynth/fluidsynth/releases/latest
+          $asset = $rel.assets | Where-Object { $_.name -like "*win10-x64*.zip" } | Select-Object -First 1
+          Invoke-WebRequest $asset.browser_download_url -OutFile fluidsynth.zip
+          Expand-Archive fluidsynth.zip -DestinationPath packaging/assets/fluidsynth-tmp
+          $bin = Get-ChildItem packaging/assets/fluidsynth-tmp -Recurse -Filter fluidsynth.exe | Select-Object -First 1
+          New-Item -ItemType Directory -Force packaging/assets/fluidsynth | Out-Null
+          Copy-Item -Recurse $bin.Directory.Parent.FullName/* packaging/assets/fluidsynth/
+      - name: FluidSynth (Linux, for the smoke test; users install it with their package manager)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y fluidsynth
+
+      - name: Build
+        run: uv run --python 3.12 pyinstaller packaging/rameau.spec --noconfirm --distpath dist --workpath build
+
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          APP="dist/Rameau Studio.app/Contents/MacOS/RameauStudio"
+          "$APP" styles
+          "$APP" harmonize src/rameau/samples/twinkle.abc --out smoke --svg
+          "$APP" band "| Dm7 G7 | CM7 |" --groove BossaNova --out smoke/band.mid
+          ls -la smoke
+          "dist/Rameau Studio.app/Contents/Resources/fluidsynth/bin/fluidsynth" --version | head -1 || \
+            "dist/Rameau Studio.app/Contents/Frameworks/fluidsynth/bin/fluidsynth" --version | head -1
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = "dist/RameauStudio/RameauStudio.exe"
+          $p = Start-Process $exe -ArgumentList 'harmonize','src/rameau/samples/twinkle.abc','--out','smoke','--svg' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "harmonize failed: $($p.ExitCode)" }
+          $p = Start-Process $exe -ArgumentList 'band','"| Dm7 G7 | CM7 |"','--groove','BossaNova','--out','smoke/band.mid' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "band failed: $($p.ExitCode)" }
+          Get-ChildItem smoke
+          if (-not (Test-Path smoke/band.mid)) { throw "no band MIDI" }
+          Get-ChildItem -Recurse dist/RameauStudio -Filter fluidsynth.exe | Select-Object -First 1
+      - name: Smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          dist/RameauStudio/RameauStudio styles
+          dist/RameauStudio/RameauStudio harmonize src/rameau/samples/twinkle.abc --out smoke --svg
+          dist/RameauStudio/RameauStudio band "| Dm7 G7 | CM7 |" --groove BossaNova --out smoke/band.mid
+          ls -la smoke
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent "dist/Rameau Studio.app" "${{ matrix.artifact }}"
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/RameauStudio -DestinationPath "${{ matrix.artifact }}"
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: tar czf "${{ matrix.artifact }}" -C dist RameauStudio
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          retention-days: 14
+      - name: Attach to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}

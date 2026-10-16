@@ -17,7 +17,46 @@ from pathlib import Path
 
 import mido
 
-ENGINE = Path(__file__).resolve().parents[2] / "engine" / "mma"
+def _bundle_dir() -> Path | None:
+    """Folder holding bundled resources in a packaged app (PyInstaller), else None."""
+    return Path(sys._MEIPASS) if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS") else None
+
+
+def _find_engine() -> Path:
+    import os
+
+    if os.environ.get("RAMEAU_MMA_DIR"):
+        return Path(os.environ["RAMEAU_MMA_DIR"])
+    bundle = _bundle_dir()
+    if bundle is not None:
+        return bundle / "engine" / "mma"
+    return Path(__file__).resolve().parents[2] / "engine" / "mma"
+
+
+ENGINE = _find_engine()
+
+
+def _writable_engine() -> Path:
+    """MMA writes a groove index next to its library. Installed apps may live in a read-only folder
+    (Program Files, a signed .app), so use a private copy in the user's data folder when needed."""
+    global ENGINE
+    import os
+    import shutil
+
+    probe = ENGINE / "lib" / ".rameau-write-test"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return ENGINE
+    except OSError:
+        from .audio import user_data_dir
+
+        copy = user_data_dir() / "engine" / "mma"
+        if not (copy / "mma.py").exists():
+            shutil.copytree(ENGINE, copy, dirs_exist_ok=True)
+        ENGINE = copy
+        os.environ["RAMEAU_MMA_DIR"] = str(copy)
+        return copy
 
 
 class BandError(RuntimeError):
@@ -41,8 +80,33 @@ def mma_script() -> Path:
 
 
 def _run_mma(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess:
+    if getattr(sys, "frozen", False):
+        # A packaged app has no separate Python: run ourselves in "MMA mode", logging to a file
+        # (windowed apps on Windows have no console to print to).
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "mma.log"
+            proc = subprocess.run([sys.executable, "--run-mma", str(log), *args], cwd=str(cwd or ENGINE),
+                                  env={**__import__("os").environ, "RAMEAU_MMA_DIR": str(ENGINE)})
+            out = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
+            return subprocess.CompletedProcess(proc.args, proc.returncode, out, "")
     return subprocess.run([sys.executable, str(mma_script()), *args], capture_output=True, text=True,
                           cwd=str(cwd or ENGINE))
+
+
+def run_mma_inprocess(log_path: str, args: list[str]) -> int:
+    """Entry point for a packaged app's "MMA mode": run MMA here, with output going to ``log_path``."""
+    import runpy
+
+    engine = _find_engine()
+    with open(log_path, "w", encoding="utf-8") as log:
+        sys.stdout = sys.stderr = log
+        sys.path.insert(0, str(engine))
+        sys.argv = [str(engine / "mma.py"), *args]
+        try:
+            runpy.run_path(str(engine / "mma.py"), run_name="__main__")
+        except SystemExit as e:
+            return int(e.code or 0) if not isinstance(e.code, str) else 1
+    return 0
 
 
 def _database_is_current() -> bool:
@@ -59,6 +123,8 @@ def _database_is_current() -> bool:
 
 def ensure_groove_database() -> None:
     """MMA needs an index of its groove library; (re)build it when missing or stale (about 2 seconds)."""
+    if not _database_is_current():
+        _writable_engine()
     if not _database_is_current():
         proc = _run_mma(["-G"])
         if proc.returncode != 0:

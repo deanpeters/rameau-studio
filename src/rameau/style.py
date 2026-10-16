@@ -45,6 +45,8 @@ class ModeStats:
     phrases: int = 0
     activity: list[float] = field(default_factory=lambda: [0.0, 0.0])  # [note onsets, voice-beats]
     modes: dict[str, int] = field(default_factory=dict)              # Dorian, Phrygian, ... -> pieces
+    extended: list[int] = field(default_factory=lambda: [0, 0])     # [chords with 9/11/13/alterations, all]
+    mode_name: str = "major"
 
     # ---- probabilities -------------------------------------------------
     def _total(self, d: dict[str, int]) -> int:
@@ -61,6 +63,8 @@ class ModeStats:
 
     def p_emission(self, chord: str, degree: int) -> float:
         row = self.emissions.get(chord, {})
+        if not self._total(row):
+            return theory_emission(chord, degree, self.mode_name)
         return (row.get(str(degree), 0) + EMISSION_ALPHA) / (self._total(row) + EMISSION_ALPHA * 12)
 
     def p_cadence(self, chord: str) -> float:
@@ -101,6 +105,45 @@ class ModeStats:
         return {int(k): v / total for k, v in row.items()}
 
 
+_PRIOR_CACHE: dict[tuple[str, str], list[float]] = {}
+
+
+def theory_emission(chord: str, degree: int, mode: str = "major") -> float:
+    """Music-theory guess at how well a melody degree fits a chord, for styles without melody data
+    (e.g. learned from chord charts): chord tones fit best, then jazz extensions (9th, 11th, 13th)."""
+    key_ = (chord, mode)
+    if key_ not in _PRIOR_CACHE:
+        from music21 import key as m21key, roman
+
+        try:
+            rn = roman.RomanNumeral(chord, m21key.Key("C" if mode == "major" else "c"))
+            root = rn.root().pitchClass
+            tones = {p.pitchClass for p in rn.pitches}
+        except Exception:
+            _PRIOR_CACHE[key_] = [1 / 12] * 12
+            return 1 / 12
+        minor_third = (root + 3) % 12 in tones
+        dominant = (root + 4) % 12 in tones and (root + 10) % 12 in tones
+        w = []
+        for d in range(12):
+            iv = (d - root) % 12
+            if d in tones:
+                w.append(4.0 if iv in (3, 4) else 3.0)
+            elif iv == 2:                                  # 9th
+                w.append(2.0)
+            elif iv == 9 and not minor_third:             # 13th / 6th
+                w.append(1.5)
+            elif iv == 5 and minor_third:                 # 11th on minor chords
+                w.append(1.5)
+            elif dominant and iv in (1, 3, 6, 8):         # altered tensions on dominants
+                w.append(0.6)
+            else:
+                w.append(0.15)
+        total = sum(w)
+        _PRIOR_CACHE[key_] = [x / total for x in w]
+    return _PRIOR_CACHE[key_][degree % 12]
+
+
 @dataclass
 class StyleModel:
     name: str
@@ -109,6 +152,7 @@ class StyleModel:
     source: str
     pieces: int
     modes: dict[str, ModeStats]
+    has_melody: bool = True   # False for styles learned from chord charts (no melody statistics)
 
     def mode(self, mode: str) -> ModeStats:
         return self.modes["minor" if mode == "minor" else "major"]
@@ -122,6 +166,7 @@ class StyleModel:
             "description": self.description,
             "source": self.source,
             "pieces": self.pieces,
+            "has_melody": self.has_melody,
             "modes": {m: vars(s) for m, s in self.modes.items()},
         }
 
@@ -130,13 +175,19 @@ class StyleModel:
 
     @classmethod
     def from_json(cls, data: dict) -> "StyleModel":
+        modes = {}
+        for m, s in data["modes"].items():
+            stats = ModeStats(**s)
+            stats.mode_name = m
+            modes[m] = stats
         return cls(
             name=data["name"],
             title=data["title"],
             description=data["description"],
             source=data["source"],
             pieces=data["pieces"],
-            modes={m: ModeStats(**s) for m, s in data["modes"].items()},
+            modes=modes,
+            has_melody=data.get("has_melody", True),
         )
 
     @classmethod

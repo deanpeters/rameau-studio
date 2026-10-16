@@ -23,7 +23,7 @@ SOPRANO = range(60, 80)  # C4..G5
 # --------------------------------------------------------------------------- parsing
 
 def _is_roman(token: str) -> bool:
-    return bool(_FIGURE_OK.match(token.replace("°", "o").replace("ø", "ø")))
+    return bool(_FIGURE_OK.match(re.sub(r"maj7$", "M7", token.replace("°", "o"))))
 
 
 def _symbol_to_chord(sym: str):
@@ -51,6 +51,23 @@ def guess_key(symbols: list[str]) -> m21key.Key:
     return best
 
 
+def _typed_roman(token: str, k: m21key.Key) -> str:
+    """A Roman numeral as a musician types it. 'X7' on an uppercase numeral means a dominant
+    seventh (blues I7, IV7), even where the key's own seventh would be major; 'maj7'/'M7' means major."""
+    from music21 import chord as m21chord
+
+    t = re.sub(r"maj7$", "M7", token.replace("°", "o"))
+    head, _, tail = t.partition("/")
+    if head.endswith("7") and not head.endswith(("M7", "o7", "ø7")) and head.lstrip("b#-")[:1].isupper():
+        rn = roman.RomanNumeral(t, k)
+        root = rn.root()
+        pcs = [root, root.transpose("M3"), root.transpose("P5"), root.transpose("m7")]
+        lab = chord_label(m21chord.Chord([p.name + "4" for p in pcs]), k)
+        if lab:
+            return lab[0]
+    return t
+
+
 def parse_pattern(text: str, beats_per_bar: int = 4, k: m21key.Key | None = None
                   ) -> tuple[list[list[str]], m21key.Key]:
     """Bars of Roman numerals (one per beat) and the key. Bars are separated by | or new lines."""
@@ -67,7 +84,7 @@ def parse_pattern(text: str, beats_per_bar: int = 4, k: m21key.Key | None = None
         labels = []
         for t in bar:
             if roman_input:
-                labels.append(t.replace("°", "o"))
+                labels.append(_typed_roman(t, k))
             else:
                 lab = chord_label(_symbol_to_chord(t), k)
                 if lab is None:

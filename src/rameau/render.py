@@ -96,7 +96,7 @@ def _voice_part(melody: stream.Part, h: Harmonization, r: Realization, voice: in
                     n = note.Note(spell(e.midi, h.key, chord_pitches), quarterLength=e.dur)
                 nm.insert(abs_off - m.offset, n)
                 if lyric:
-                    n.addLyric(c.label)
+                    n.addLyric(c.name)
                 prev_n, same_measure_prev, prev_end = n, n, abs_off + e.dur
         part.append(nm)
     return part
@@ -247,9 +247,9 @@ def explanation_markdown(h: Harmonization, r: Realization, title: str) -> str:
             continue
         prev = c.label
         mel = c.beat.pitch.name.replace("-", "b") if c.beat.pitch is not None else "rest"
-        alts = ", ".join(f"{a.symbol} ({a.label}) {a.probability:.0%}" for a in c.alternatives)
+        alts = ", ".join(f"{a.symbol} ({a.name}) {a.probability:.0%}" for a in c.alternatives)
         cad = " **cadence**" if c.cadence else ""
-        lines.append(f"| {c.beat.label} | {mel} | {chord_symbol(c.label, h.key, r.inversions[t])} | {c.label}{cad} | "
+        lines.append(f"| {c.beat.label} | {mel} | {chord_symbol(c.label, h.key, r.inversions[t])} | {c.name}{cad} | "
                      f"{c.function} | {c.confidence:.0%} | {alts} |")
     lines += ["", "## Why each chord", ""]
     prev = None
@@ -257,7 +257,7 @@ def explanation_markdown(h: Harmonization, r: Realization, title: str) -> str:
         if c.label == prev and not c.beat.phrase_end:
             continue
         prev = c.label
-        lines.append(f"**{c.beat.label}: {c.symbol} ({c.label})**, {c.function}" + (f"; {c.cadence}" if c.cadence else ""))
+        lines.append(f"**{c.beat.label}: {c.symbol} ({c.name})**, {c.function}" + (f"; {c.cadence}" if c.cadence else ""))
         lines += [f"- {reason}" for reason in c.reasons]
         lines.append("")
     if r.findings:

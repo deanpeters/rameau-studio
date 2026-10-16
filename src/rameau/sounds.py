@@ -16,6 +16,8 @@ VIOLIN, VIOLA, CELLO, CONTRABASS, STRINGS = 40, 41, 42, 43, 48
 CHOIR, VOICE_OOHS = 52, 53
 TRUMPET, TROMBONE, FRENCH_HORN = 56, 57, 60
 OBOE, BASSOON, CLARINET, FLUTE, RECORDER = 68, 70, 71, 73, 74
+ELECTRIC_PIANO, VIBES, JAZZ_GUITAR, ACOUSTIC_BASS = 4, 11, 26, 32
+ALTO_SAX, TENOR_SAX, BARI_SAX = 65, 66, 67
 
 
 @dataclass(frozen=True)
@@ -61,6 +63,17 @@ SOUNDS: dict[str, Sound] = {s.key: s for s in [
           voices=((PIANO,),) * 4, tempo=(60, 96, 140)),
     Sound("strings", "String orchestra", "All four voices on a warm string section.",
           voices=((STRINGS,), (STRINGS,), (STRINGS,), (CONTRABASS, CELLO)), tempo=(55, 76, 110)),
+    Sound("romantic_piano", "Piano (Romantic)", "The 19th-century piano: the instrument of Chopin, Schumann and "
+          "Schubert's songs.", voices=((PIANO,),) * 4, tempo=(50, 72, 110)),
+    Sound("piano_trio", "Piano trio", "Violin, cello and piano: a favourite Romantic chamber group.",
+          voices=((VIOLIN,), (PIANO,), (PIANO,), (CELLO, PIANO)), tempo=(55, 76, 110)),
+    Sound("jazz_piano", "Jazz piano", "Close four-note voicings on piano, the way a jazz pianist comps chords.",
+          voices=((PIANO,),) * 4, tempo=(60, 100, 180)),
+    Sound("sax_section", "Saxophone section", "A big-band sax section voicing the chords: alto, alto, tenor, "
+          "baritone.", voices=((ALTO_SAX,), (ALTO_SAX,), (TENOR_SAX,), (BARI_SAX,)), tempo=(60, 110, 200)),
+    Sound("cool_ep", "Electric piano & vibes", "Electric piano with vibraphone on top: the soft, glossy sound "
+          "of 1970s-80s smooth and cool jazz.", voices=((VIBES,), (ELECTRIC_PIANO,), (ELECTRIC_PIANO,),
+                                                        (ACOUSTIC_BASS,)), tempo=(60, 80, 110)),
     # grooves: the melody on top, the band plays the chords
     Sound("hymn_walk", "Hymn with walking bass (band)", "A keyboard plays the chords while the bass walks, "
           "a little like a Baroque continuo.", grooves={4: "HymnWalk", 3: "HymnWalk"}, melody_program=OBOE,
@@ -70,6 +83,27 @@ SOUNDS: dict[str, Sound] = {s.key: s for s in [
           tempo=(70, 92, 130)),
     Sound("march", "March (band)", "A steady march, the kind of music the Classical era loved for parades.",
           grooves={4: "March", 2: "March", 6: "68March"}, melody_program=TRUMPET, tempo=(90, 112, 130)),
+    Sound("swing_band", "Swing (band)", "A swinging rhythm section: walking bass, ride cymbal, comping piano.",
+          grooves={4: "Swing", 2: "Swing", 3: "JazzWaltz"}, melody_program=TENOR_SAX, tempo=(100, 140, 220)),
+    Sound("jazz_combo", "Jazz combo (band)", "A small group: bass, drums and piano behind a horn.",
+          grooves={4: "JazzCombo", 3: "JazzWaltz"}, melody_program=TRUMPET, tempo=(90, 130, 200)),
+    Sound("jazz_ballad_band", "Jazz ballad (band)", "Slow, brushed jazz behind a lyrical horn.",
+          grooves={4: "SlowJazz", 3: "JazzWaltz"}, melody_program=TENOR_SAX, tempo=(50, 66, 90)),
+    Sound("smooth_band", "Mellow / smooth jazz (band)", "A mellow, laid-back groove: the feel of smooth jazz.",
+          grooves={4: "MellowJazz", 3: "JazzWaltz"}, melody_program=ALTO_SAX, tempo=(70, 88, 110)),
+    Sound("bossa_band", "Bossa nova (band)", "Brazilian bossa nova: nylon guitar, brushes and gentle syncopation.",
+          grooves={4: "BossaNova", 2: "BossaNova"}, melody_program=FLUTE, tempo=(110, 132, 160)),
+    Sound("dixie_band", "Dixieland (band)", "New Orleans two-beat with banjo and tuba feel.",
+          grooves={4: "Dixie", 2: "Dixie"}, melody_program=CLARINET, tempo=(120, 170, 220)),
+    Sound("blues_band", "Blues (band)", "A shuffling blues rhythm section.",
+          grooves={4: "Blues", 3: "Blues"}, melody_program=JAZZ_GUITAR, tempo=(60, 90, 140)),
+    Sound("rock_band", "Rock (band)", "Straight-eighths rock: drums, bass and guitars.",
+          grooves={4: "BasicRock", 3: "RockWaltz"}, melody_program=JAZZ_GUITAR, tempo=(90, 116, 150)),
+    Sound("pop_ballad_band", "Pop ballad (band)", "A soft pop ballad with piano and strings.",
+          grooves={4: "PopBallad", 3: "RockWaltz"}, melody_program=FLUTE, tempo=(60, 76, 96)),
+    Sound("country_band", "Country (band)", "Country rhythm: boom-chick bass and strummed guitar.",
+          grooves={4: "CountrySwing", 3: "CountryWaltz", 2: "CountrySwing"}, melody_program=JAZZ_GUITAR,
+          tempo=(90, 120, 160)),
     Sound("waltz", "Waltz (band)", "Viennese waltz: arrived just after the Classical era (Schubert, Strauss).",
           grooves={3: "VieneseWaltz1Sus"}, melody_program=VIOLIN, tempo=(120, 160, 190)),
 ]}
@@ -80,15 +114,29 @@ STYLE_SOUNDS: dict[str, list[str]] = {
     "monteverdi": ["continuo", "lute_song", "choir", "recorders"],
     "bach_chorale": ["choir_organ", "organ", "choir", "strings", "hymn_walk"],
     "classical": ["string_quartet", "piano", "harmonie", "alberti", "march"],
+    "romantic": ["romantic_piano", "piano_trio", "strings", "waltz", "alberti"],
+    "jazz_standards": ["swing_band", "jazz_combo", "jazz_piano", "sax_section", "jazz_ballad_band"],
+    "jazz_ballad": ["jazz_ballad_band", "smooth_band", "cool_ep", "jazz_piano", "sax_section"],
+    "bossa_latin": ["bossa_band", "smooth_band", "cool_ep", "jazz_piano"],
+    "dixieland": ["dixie_band", "swing_band", "jazz_piano", "march"],
+    "blues": ["blues_band", "swing_band", "jazz_piano", "rock_band"],
+    "pop_rock": ["rock_band", "pop_ballad_band", "piano", "strings"],
+    "country": ["country_band", "pop_ballad_band", "piano"],
 }
 DEFAULT_SOUNDS = ["choir", "organ", "piano", "strings", "alberti"]
 
 # Rough dates, used to explain unusual pairings.
 STYLE_PERIOD = {"palestrina": (1550, 1600), "monteverdi": (1590, 1640), "bach_chorale": (1720, 1750),
-                "classical": (1760, 1810)}
+                "classical": (1760, 1810), "romantic": (1815, 1900), "dixieland": (1910, 1930),
+                "jazz_standards": (1925, 1965), "jazz_ballad": (1930, 1975), "bossa_latin": (1958, 1975),
+                "blues": (1920, 1970), "pop_rock": (1955, 2000), "country": (1940, 2000)}
 SOUND_PERIOD = {"string_quartet": 1755, "harmonie": 1760, "piano": 1770, "waltz": 1800, "march": 1750,
                 "alberti": 1730, "continuo": 1600, "sackbuts": 1450, "recorders": 1400, "choir": 1000,
-                "organ": 1300, "choir_organ": 1600, "lute_song": 1500, "strings": 1650, "hymn_walk": 1650}
+                "organ": 1300, "choir_organ": 1600, "lute_song": 1500, "strings": 1650, "hymn_walk": 1650,
+                "romantic_piano": 1800, "piano_trio": 1780, "jazz_piano": 1920, "sax_section": 1925,
+                "cool_ep": 1965, "swing_band": 1930, "jazz_combo": 1940, "jazz_ballad_band": 1935,
+                "smooth_band": 1975, "bossa_band": 1958, "dixie_band": 1910, "blues_band": 1920,
+                "rock_band": 1955, "pop_ballad_band": 1965, "country_band": 1940}
 
 
 def recommended(style: str) -> list[Sound]:

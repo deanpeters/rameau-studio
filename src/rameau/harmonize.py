@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from music21 import key as m21key
 from music21 import roman
 
-from .music import DEGREE_NAMES, Beat, beats_per_bar, chord_function, degree, detect_key, melody_beats
+from .music import DEGREE_NAMES, Beat, beats_per_bar, chord_function, degree, detect_key, melody_beats, pretty
 from .style import ModeStats, StyleModel, log
 
 FINAL_TONIC_BONUS = 8.0  # pieces almost always end on the home chord
@@ -27,6 +27,10 @@ class Alternative:
     label: str
     symbol: str
     probability: float
+
+    @property
+    def name(self) -> str:
+        return pretty(self.label)
 
 
 @dataclass
@@ -41,6 +45,11 @@ class ChordChoice:
     reasons: list[str]
     cadence: str | None = None      # e.g. "authentic cadence"
     locked: bool = False
+
+    @property
+    def name(self) -> str:
+        """The Roman numeral as shown to people (IV7 = dominant seventh, IVM7 = major seventh)."""
+        return pretty(self.label)
 
 
 @dataclass
@@ -225,9 +234,9 @@ def harmonize(melody, style: StyleModel, key: m21key.Key | str | None = None,
         top = alts[0] if alts else None
         if top is not None and top.probability > choices[-1].confidence and t not in locks:
             choices[-1].reasons.append(
-                f"Trade-off: on this beat alone {top.symbol} ({top.label}) is more likely "
-                f"({top.probability:.0%} vs {choices[-1].confidence:.0%}), but {lab} connects better with the "
-                f"chords around it, so the best overall progression uses {lab}.")
+                f"Trade-off: on this beat alone {top.symbol} ({top.name}) is more likely "
+                f"({top.probability:.0%} vs {choices[-1].confidence:.0%}), but {pretty(lab)} connects better with the "
+                f"chords around it, so the best overall progression uses {pretty(lab)}.")
 
     notes = [f"Key: {k.tonic.name.replace('-', 'b')} {k.mode} (detected from the melody)" if key is None
              else f"Key: {k.tonic.name.replace('-', 'b')} {k.mode}",
@@ -244,29 +253,37 @@ def _reasons(stats: ModeStats, style: StyleModel, k, b: Beat, lab: str, prev: st
              role: str, cad: str | None, locked: bool, lock_reason: str | None = None) -> list[str]:
     who = style.title
     out = []
+    raw_lab, raw_prev, raw_nxt = lab, prev, nxt
     if locked:
         out.append(lock_reason or "You locked this chord; the other chords were chosen to fit around it.")
     if b.pitch is not None:
         deg = degree(b.pitch, k)
-        hit, tot = stats.emission_share(lab, deg)
-        out.append(f"Melody fit: the melody note {b.pitch.name.replace('-', 'b')} (scale degree {DEGREE_NAMES[deg]}) "
-                   f"is {role} of {lab}. When {who} uses {lab}, the top voice is on this degree {_pct(hit, tot)} of the time.")
+        hit, tot = stats.emission_share(raw_lab, deg)
+        note_name = b.pitch.name.replace('-', 'b')
+        if tot:
+            out.append(f"Melody fit: the melody note {note_name} (scale degree {DEGREE_NAMES[deg]}) is {role} of "
+                       f"{pretty(lab)}. When {who} uses {pretty(lab)}, the top voice is on this degree "
+                       f"{_pct(hit, tot)} of the time.")
+        else:
+            out.append(f"Melody fit: the melody note {note_name} (scale degree {DEGREE_NAMES[deg]}) is {role} of "
+                       f"{pretty(lab)}. {who} was learned from chord charts (no melodies), so melody fit uses music "
+                       "theory: chord tones fit best, then 9ths, 11ths and 13ths.")
     if prev is not None:
-        hit, tot = stats.transition_share(prev, lab)
-        if prev == lab:
+        hit, tot = stats.transition_share(raw_prev, raw_lab)
+        if raw_prev == raw_lab:
             strong = b.beat == 1
             changed, total = stats.rhythm.get("strong" if strong else "weak", [0, 0])
             rhythm = (f" {who} changes chord on {_pct(changed, total)} of {'strong' if strong else 'weak'} beats."
                       if total else "")
             out.append(f"Flow: repeating {lab} keeps the harmony steady under a moving melody.{rhythm}")
         else:
-            out.append(f"Flow: after {prev}, {who} moves to {lab} {_pct(hit, tot)} of the time.")
+            out.append(f"Flow: after {pretty(prev)}, {who} moves to {pretty(lab)} {_pct(hit, tot)} of the time.")
     else:
-        out.append(f"Opening: {who} starts on {lab} in {_pct(stats.start.get(lab, 0), sum(stats.start.values()))} of pieces.")
+        out.append(f"Opening: {who} starts on {pretty(lab)} in {_pct(stats.start.get(raw_lab, 0), sum(stats.start.values()))} of pieces.")
     if b.phrase_end:
-        c_hit, c_tot = stats.cadences.get(lab, 0), sum(stats.cadences.values())
-        out.append(f"Phrase ending: {who} ends {_pct(c_hit, c_tot)} of phrases on {lab}" + (f": a {cad}." if cad else "."))
+        c_hit, c_tot = stats.cadences.get(raw_lab, 0), sum(stats.cadences.values())
+        out.append(f"Phrase ending: {who} ends {_pct(c_hit, c_tot)} of phrases on {pretty(lab)}" + (f": a {cad}." if cad else "."))
     if nxt is not None and nxt != lab:
-        hit, tot = stats.transition_share(lab, nxt)
-        out.append(f"Leads to: {nxt} next, a move {who} makes {_pct(hit, tot)} of the time from {lab}.")
+        hit, tot = stats.transition_share(raw_lab, raw_nxt)
+        out.append(f"Leads to: {pretty(nxt)} next, a move {who} makes {_pct(hit, tot)} of the time from {pretty(lab)}.")
     return out

@@ -1,5 +1,7 @@
 # Rameau Studio
 
+[![tests](https://github.com/deanpeters/rameau-studio/actions/workflows/tests.yml/badge.svg)](https://github.com/deanpeters/rameau-studio/actions/workflows/tests.yml)
+
 *Learn harmony by hearing it.*
 
 Rameau generates and harmonizes music in the style of different composers and eras, then
@@ -8,6 +10,26 @@ end. It is named after Jean-Philippe Rameau, whose *Treatise on Harmony* (1722) 
 theory of chords it teaches.
 
 Status: early development. See [PLAN.md](PLAN.md).
+
+## Download
+
+Builds for macOS (Apple Silicon), Windows and Linux are attached to each
+[release](https://github.com/deanpeters/rameau-studio/releases). They're not code-signed yet:
+
+- **macOS:** unzip, then right-click *Rameau Studio* → **Open** the first time (Gatekeeper warning).
+- **Windows:** unzip and run `RameauStudio.exe`; choose **More info → Run anyway** on the SmartScreen prompt.
+- **Linux:** untar and run `RameauStudio/RameauStudio`. For sound: `sudo apt install fluidsynth`.
+
+## Styles
+
+| Era | Styles | Learned from |
+|---|---|---|
+| Renaissance | Palestrina, Monteverdi | music21 corpus scores |
+| Baroque | Bach chorale | 371 chorales |
+| Classical / Romantic | Classical (Mozart, Haydn, Beethoven), Romantic (Chopin, Schubert, Schumann, Beach) | music21 corpus scores |
+| 20th century | Dixieland, Jazz standards, Jazz ballad, Bossa nova & Latin, Blues, Pop & rock, Country | ~2,200 iReal Pro chord charts |
+
+Train your own from a folder of scores or iReal Pro playlists: `rameau train-folder ./my_charts --name smooth_jazz`.
 
 ## What works today
 
@@ -27,6 +49,8 @@ Status: early development. See [PLAN.md](PLAN.md).
   or let a style invent a progression; Rameau composes a melody and four voices in that style.
 - **Style + sound guidance**: each style recommends ensembles (choir + organ, string quartet,
   cornetts & sackbuts…) and explains unusual pairings.
+- **Step-entry editing**: type notes (A–G, durations 1–5) or click an on-screen piano; live sheet music.
+- **Open iReal Pro charts** in the Chords tab, shown as Roman numerals.
 - **Optional AI mode** (bring your own Anthropic API key): a tutor that answers questions about the
   piece on screen, grounded in Rameau's analysis, and a melody composer. Default model:
   `claude-haiku-5-5`.

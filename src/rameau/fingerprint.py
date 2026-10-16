@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 
+from .music import pretty
 from .style import StyleModel
 
 
@@ -27,6 +28,7 @@ class Fingerprint:
     activity: float = 0.0                  # notes per voice per beat
     modes: list[tuple[str, float]] = field(default_factory=list)
     modulations: list[tuple[str, float]] = field(default_factory=list)
+    extended: float | None = None          # chords with 9ths/11ths/13ths/alterations (chord charts only)
     signature_moves: list[tuple[str, str, float, float]] = field(default_factory=list)  # a, b, share, x-times
 
 
@@ -71,7 +73,10 @@ def fingerprint(style: StyleModel) -> Fingerprint:
     rhythm = {"strong": [0, 0], "weak": [0, 0]}
     intervals, modes, mods = Counter(), Counter(), Counter()
     act = [0.0, 0.0]
+    ext = [0, 0]
     for m in style.modes.values():
+        ext[0] += m.extended[0]
+        ext[1] += m.extended[1]
         for kind in rhythm:
             c, t = m.rhythm.get(kind, [0, 0])
             rhythm[kind][0] += c
@@ -92,6 +97,7 @@ def fingerprint(style: StyleModel) -> Fingerprint:
         activity=act[0] / (act[1] or 1),
         modes=[(k, v / modes_total) for k, v in modes.most_common(3)],
         modulations=[(k, v / mods_total) for k, v in mods.most_common(4) if k != "home"],
+        extended=ext[0] / ext[1] if ext[1] else None,
         style=style,
         chords=total,
         top_chords=[(c, n / total) for c, n in counts.most_common(8)],
@@ -137,27 +143,34 @@ def _p(x: float) -> str:
 
 def table_rows(fps: list[Fingerprint]) -> list[tuple[str, list[str]]]:
     rows = [
-        ("Pieces learned from", [str(fp.style.pieces) for fp in fps]),
+        ("Learned from", [f"{fp.style.pieces} {'scores' if fp.style.has_melody else 'chord charts'}"
+                          for fp in fps]),
         ("Chords analysed", [f"{fp.chords:,}" for fp in fps]),
-        ("Favourite chords", [", ".join(f"{c} {_p(s)}" for c, s in fp.top_chords[:5]) for fp in fps]),
+        ("Favourite chords", [", ".join(f"{pretty(c)} {_p(s)}" for c, s in fp.top_chords[:5]) for fp in fps]),
         ("Seventh chords", [_p(fp.seventh_share) for fp in fps]),
+        ("Extended chords (9ths, 11ths, 13ths, altered)", [_p(fp.extended) if fp.extended is not None
+                                                           else "not in scores" for fp in fps]),
         ("Chromatic chords (secondary dominants, borrowed)", [_p(fp.chromatic_share) for fp in fps]),
         ("Root position (bass on the chord's root)", [_p(fp.root_position_share) for fp in fps]),
         ("Chord changes on a beat", [_p(fp.change_rate) for fp in fps]),
         ("Harmonic rhythm: changes on strong / weak beats", [f"{_p(fp.strong_change)} / {_p(fp.weak_change)}"
                                                                for fp in fps]),
-        ("Melody moves by step / leaps beyond a 4th", [f"{_p(fp.stepwise)} / {_p(fp.leaps)}" for fp in fps]),
-        ("Voice activity (notes per voice per beat)", [f"{fp.activity:.2f}" for fp in fps]),
+        ("Melody moves by step / leaps beyond a 4th", [f"{_p(fp.stepwise)} / {_p(fp.leaps)}" if fp.style.has_melody
+                                                        else "no melody in charts" for fp in fps]),
+        ("Voice activity (notes per voice per beat)", [f"{fp.activity:.2f}" if fp.style.has_melody else "n/a"
+                                                        for fp in fps]),
         ("Modes (by the piece's final)", [", ".join(f"{k} {_p(v)}" for k, v in fp.modes) or "n/a" for fp in fps]),
-        ("Phrases that move to another key", [", ".join(f"{k} {_p(v)}" for k, v in fp.modulations) or "none"
+        ("Phrases that move to another key", [", ".join(f"{pretty(k)} {_p(v)}" for k, v in fp.modulations) or "none"
                                               for fp in fps]),
-        ("Most common moves", ["<br>".join(f"{a} → {b} {_p(s)}" for a, b, s in fp.top_moves[:4]) for fp in fps]),
-        ("Phrases end on", [", ".join(f"{c} {_p(s)}" for c, s in fp.cadence_endings[:3]) for fp in fps]),
+        ("Most common moves", ["<br>".join(f"{pretty(a)} → {pretty(b)} {_p(s)}" for a, b, s in fp.top_moves[:4])
+                               for fp in fps]),
+        ("Phrases end on", [", ".join(f"{pretty(c)} {_p(s)}" for c, s in fp.cadence_endings[:3]) for fp in fps]),
         ("Endings by dominant → home", [_p(fp.authentic_share) for fp in fps]),
     ]
     if len(fps) > 1:
         rows.append(("Signature moves (vs the others)",
-                     ["<br>".join(f"{a} → {b} ({x:.1f}× more)" for a, b, _, x in fp.signature_moves[:4]) or "n/a"
+                     ["<br>".join(f"{pretty(a)} → {pretty(b)} ({x:.1f}× more)" for a, b, _, x in fp.signature_moves[:4])
+                      or "n/a"
                       for fp in fps]))
     return rows
 

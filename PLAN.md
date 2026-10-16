@@ -184,7 +184,23 @@ Built in session 1, part 2 (2026-10-15), now public at https://github.com/deanpe
 - **AI mode** (`ai.py`): bring-your-own-key tutor + composer, Claude Haiku by default, keys from
   env or OS keychain only; friendly errors (no key, bad key, rate limit, no credits).
 
+Built in session 2 (2026-10-16):
+- **CI on Windows, Linux and macOS** (Python 3.12 + 3.13): found and fixed a machine-specific MMA index
+  that had been committed.
+- **More eras**: Romantic (music21 corpus) and seven 20th-century styles learned from ~2,200 iReal Pro
+  charts (infojunkie/ireal-musicxml test data; only statistics are committed). Chart styles have no melody
+  data, so melody fit falls back to a music-theory prior. iReal Pro import in the Chords tab.
+- **Chord naming fixes**: minor-key V7 was being dropped (music21's "V75#3"); dominant sevenths on IV etc.
+  ("IVb7", shown as IV7); major sevenths shown as M7 so "7" always means dominant.
+- **Step-entry editor** with pickup bars, ties, accidentals; on-screen piano.
+- **Installers**: PyInstaller app with bundled SoundFont (and FluidSynth on macOS/Windows); the packaged
+  app runs MMA by re-launching itself; GitHub workflow builds and smoke-tests all three on tags.
+- **Stability**: fixed a crash from background-job objects being collected before Qt delivered their
+  signals (the real cause of the earlier crashes); windowed builds log errors to rameau.log.
+
 Known limitations to address next:
+- Installers are unsigned (Gatekeeper/SmartScreen warnings) and large (~670 MB unpacked on macOS).
+- macOS build is Apple Silicon only; Linux relies on the system FluidSynth.
 - Local-key detection is cautious and under-counts Bach's modulations.
 - Classical quartets: phrase endings are still under-detected from the top line alone (dominant →
   home endings show 6%, far below reality), and some movements ending off the tonic show up as

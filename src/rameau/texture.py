@@ -46,12 +46,14 @@ TEXTURES = {t.key: t for t in [
             "and prepare dissonant suspensions at cadences.", passing=1, suspensions=True, hold_common=True),
     Texture("continuo", "Early Baroque continuo", "A sustained bass line under the voices, with suspensions at "
             "cadences.", suspensions=True, hold_bass=True, hold_common=True),
+    Texture("romantic", "Romantic accompaniment", "A singing melody over flowing inner voices and a sustained "
+            "bass, with passing notes for colour.", passing=1, pulse=2, hold_bass=True),
     Texture("classical", "Classical accompaniment", "Melody on top; the middle voices pulse in repeated eighth "
             "notes over a bass that marks each chord change.", pulse=2),
 ]}
 
 STYLE_TEXTURE = {"bach_chorale": "chorale", "palestrina": "polyphony", "monteverdi": "continuo",
-                 "classical": "classical"}
+                 "classical": "classical", "romantic": "romantic"}
 
 
 def texture_for(style_name: str) -> Texture:

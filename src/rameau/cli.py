@@ -70,6 +70,16 @@ def _harmonize(args) -> int:
     return 0
 
 
+def _band(args) -> int:
+    from . import band
+
+    bars = band.expand_to_beats(band.parse_chord_text(args.chords), int(args.time.split("/")[0]))
+    src = band.mma_source(bars, args.groove, args.tempo, args.time, "Chord chart")
+    out = band.render_band(src, Path(args.out))
+    print(f"Wrote {out} ({len(bars)} bars, {args.groove}, {args.tempo} BPM)")
+    return 0
+
+
 def _styles(args) -> int:
     for name, path in sorted(builtin_styles().items()):
         s = load_style(name)
@@ -107,6 +117,14 @@ def main(argv: list[str] | None = None) -> int:
     h.add_argument("--svg", action="store_true", help="also write sheet music as SVG")
     h.add_argument("--play", action="store_true", help="play the result")
     h.set_defaults(func=_harmonize)
+
+    b = sub.add_parser("band", help="play a chord chart with an MMA groove, e.g. '| Dm7 G7 | CM7 |'")
+    b.add_argument("chords")
+    b.add_argument("--groove", default="Swing")
+    b.add_argument("--tempo", type=int, default=110)
+    b.add_argument("--time", default="4/4")
+    b.add_argument("--out", default="band.mid")
+    b.set_defaults(func=_band)
 
     s = sub.add_parser("styles", help="list built-in styles")
     s.set_defaults(func=_styles)

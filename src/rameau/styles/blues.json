@@ -1,0 +1,262 @@
+{
+ "description": "Blues forms: dominant-seventh chords on I, IV and V.",
+ "format": "rameau-style/1",
+ "has_melody": false,
+ "modes": {
+  "major": {
+   "activity": [
+    0.0,
+    0.0
+   ],
+   "cadence_approach": {
+    "I": {
+     "IVb7": 4,
+     "V7": 2
+    },
+    "IV": {
+     "IVb7": 2
+    },
+    "V7": {
+     "I": 3,
+     "V7/IV": 1
+    },
+    "V7/IV": {
+     "I": 7,
+     "IV": 1,
+     "IVb7": 19,
+     "V7": 5
+    },
+    "V7/V": {
+     "V7/ii": 1
+    }
+   },
+   "cadence_melody": {},
+   "cadences": {
+    "I": 19,
+    "IV": 2,
+    "V7": 7,
+    "V7/IV": 53,
+    "V7/V": 1
+   },
+   "chord_counts": {
+    "I": 724,
+    "IV": 64,
+    "IVb7": 520,
+    "V7": 242,
+    "V7/IV": 1396,
+    "V7/V": 28,
+    "V7/ii": 33,
+    "ii": 24
+   },
+   "emissions": {},
+   "extended": [
+    27,
+    3079
+   ],
+   "inversions": {
+    "I": {
+     "0": 717,
+     "2": 7
+    },
+    "IV": {
+     "0": 64
+    },
+    "IVb7": {
+     "0": 520
+    },
+    "V7": {
+     "0": 242
+    },
+    "V7/IV": {
+     "0": 1394,
+     "3": 2
+    },
+    "V7/V": {
+     "0": 28
+    },
+    "V7/ii": {
+     "0": 33
+    },
+    "ii": {
+     "0": 24
+    }
+   },
+   "melody_intervals": {},
+   "mode_name": "major",
+   "modes": {
+    "Ionian (major)": 52
+   },
+   "modulations": {},
+   "phrases": 82,
+   "rhythm": {
+    "strong": [
+     315,
+     1429
+    ],
+    "weak": [
+     12,
+     1523
+    ]
+   },
+   "start": {
+    "I": 15,
+    "IVb7": 3,
+    "V7": 4,
+    "V7/IV": 25,
+    "V7/V": 1
+   },
+   "transitions": {
+    "I": {
+     "I": 620,
+     "IV": 3,
+     "IVb7": 13,
+     "V7": 14,
+     "V7/IV": 22,
+     "V7/ii": 5
+    },
+    "IV": {
+     "I": 4,
+     "IV": 45,
+     "V7/IV": 2
+    },
+    "IVb7": {
+     "I": 26,
+     "IV": 4,
+     "IVb7": 432,
+     "V7/IV": 50
+    },
+    "V7": {
+     "I": 12,
+     "IV": 2,
+     "IVb7": 25,
+     "V7": 179,
+     "V7/IV": 8
+    },
+    "V7/IV": {
+     "I": 3,
+     "IV": 5,
+     "IVb7": 34,
+     "V7": 32,
+     "V7/IV": 1268
+    },
+    "V7/V": {
+     "V7": 5,
+     "V7/V": 21
+    },
+    "V7/ii": {
+     "V7/V": 5,
+     "V7/ii": 20,
+     "ii": 8
+    },
+    "ii": {
+     "IV": 4,
+     "V7/ii": 4,
+     "ii": 16
+    }
+   },
+   "vocab": [
+    "V7/IV",
+    "I",
+    "IVb7",
+    "V7",
+    "IV",
+    "V7/ii",
+    "V7/V",
+    "ii"
+   ]
+  },
+  "minor": {
+   "activity": [
+    0.0,
+    0.0
+   ],
+   "cadence_approach": {
+    "I": {
+     "IV7": 1
+    },
+    "i": {
+     "iv": 1
+    }
+   },
+   "cadence_melody": {},
+   "cadences": {
+    "I": 1,
+    "i": 2
+   },
+   "chord_counts": {
+    "I": 32,
+    "IV7": 12,
+    "i": 80,
+    "iv": 12
+   },
+   "emissions": {},
+   "extended": [
+    6,
+    136
+   ],
+   "inversions": {
+    "I": {
+     "0": 32
+    },
+    "IV7": {
+     "0": 12
+    },
+    "i": {
+     "0": 80
+    },
+    "iv": {
+     "0": 12
+    }
+   },
+   "melody_intervals": {},
+   "mode_name": "minor",
+   "modes": {
+    "Aeolian (minor)": 2
+   },
+   "modulations": {},
+   "phrases": 3,
+   "rhythm": {
+    "strong": [
+     7,
+     64
+    ],
+    "weak": [
+     0,
+     68
+    ]
+   },
+   "start": {
+    "i": 2
+   },
+   "transitions": {
+    "I": {
+     "I": 29,
+     "IV7": 1
+    },
+    "IV7": {
+     "I": 2,
+     "IV7": 10
+    },
+    "i": {
+     "I": 1,
+     "i": 76,
+     "iv": 1
+    },
+    "iv": {
+     "i": 2,
+     "iv": 10
+    }
+   },
+   "vocab": [
+    "i",
+    "I",
+    "iv",
+    "IV7"
+   ]
+  }
+ },
+ "name": "blues",
+ "pieces": 54,
+ "source": "iReal Pro charts 'blues50' via infojunkie/ireal-musicxml test data (54 songs; chord statistics only)",
+ "title": "Blues"
+}

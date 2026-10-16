@@ -17,3 +17,5 @@ out/
 *.pem
 secrets.*
 rameau-settings.json
+packaging/assets/*.sf2
+packaging/assets/fluidsynth/

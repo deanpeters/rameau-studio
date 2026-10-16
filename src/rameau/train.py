@@ -72,7 +72,7 @@ def _relation(local: key.Key, home: key.Key) -> str:
 
 def count_score(score: stream.Score, acc: dict) -> bool:
     """Add one harmonized score's statistics into ``acc`` (keyed by mode). Returns False if skipped."""
-    if len(score.parts) < 3:
+    if len(score.parts) < 2:
         return False
     home, mode_name = piece_key(score)
     soprano = score.parts[0]
@@ -172,6 +172,7 @@ def _finish(raw: dict) -> ModeStats:
         phrases=raw["phrases"],
         activity=raw["activity"],
         modes=plain(raw["modes"]),
+        extended=raw.get("extended", [0, 0]),
     )
 
 
@@ -219,6 +220,12 @@ def train_folder(folder: Path, out: Path, name: str, title: str) -> StyleModel:
     """Train a style from a folder of harmonized scores (MusicXML, MIDI, Humdrum, ABC)."""
     from music21 import converter
 
+    charts = sorted(p for p in folder.rglob("*") if p.suffix.lower() in {".txt", ".html", ".htm"}
+                    and "irealb" in p.read_text(encoding="utf-8", errors="replace"))
+    if charts:  # iReal Pro playlists: learn chord statistics only
+        from .ireal import train_from_files
+
+        return train_from_files(charts, out, name, title)
     files = sorted(p for p in folder.rglob("*") if p.suffix.lower() in {".xml", ".musicxml", ".mxl", ".mid", ".midi", ".krn", ".abc"})
 
     def scores():
@@ -239,6 +246,10 @@ CORPUS_STYLES = {
                       limit=None,
                       description="Classical-era chamber music: clear tonic-dominant phrases, cadential 6/4s, "
                                   "dominant sevenths and secondary dominants."),
+    "romantic": dict(composers=["chopin", "schubert", "schumann_robert", "schumann_clara", "beach", "weber", "verdi"],
+                     title="Romantic (Chopin, Schubert, Schumann, Beach)", limit=None,
+                     description="19th-century songs and piano music: chromatic colour, borrowed and "
+                                 "diminished chords, freer modulation. A small sample (about 17 pieces)."),
     "monteverdi": dict(composers=["monteverdi"], title="Monteverdi madrigals", limit=None,
                        description="Late-Renaissance / early-Baroque madrigals: expressive dissonance and "
                                    "bold chord successions."),
@@ -277,7 +288,16 @@ if __name__ == "__main__":
     which = sys.argv[1] if len(sys.argv) > 1 else "bach_chorale"
     target = Path(__file__).parent / "styles" / f"{which}.json"
     target.parent.mkdir(exist_ok=True)
-    m = train_bach(target) if which == "bach_chorale" else train_corpus_style(which, target)
+    from .ireal import CHART_STYLES, train_chart_style
+
+    if which == "bach_chorale":
+        m = train_bach(target)
+    elif which in CHART_STYLES:
+        from .audio import user_data_dir
+
+        m = train_chart_style(which, target, user_data_dir() / "corpora" / "ireal")
+    else:
+        m = train_corpus_style(which, target)
     for mode, s in m.modes.items():
         print(f"{mode}: {sum(s.chord_counts.values())} chords, vocabulary {len(s.vocab)}: {s.vocab[:15]}")
     print(f"saved {target} from {m.pieces} pieces")

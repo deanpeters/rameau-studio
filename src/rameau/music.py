@@ -263,6 +263,13 @@ def chord_label(c: chord.Chord, k: key.Key) -> tuple[str, int] | None:
     figure = _canonical(figure.replace("/o7", "ø7"), pcs, k)
     if figure is None or not _FIGURE_OK.match(figure):
         return None
+    # Major-seventh chords are written M7 (IM7, IVM7) so that "7" always means a dominant-type seventh,
+    # the way jazz and pop musicians read it.
+    ints = {(pc - root.pitchClass) % 12 for pc in pcs}
+    if ints == {0, 4, 7, 11} and "M7" not in figure:
+        head, _, tail = figure.partition("/")
+        if head.endswith("7"):
+            figure = head[:-1] + "M7" + ("/" + tail if tail else "")
     try:
         inv = c.inversion()
     except Exception:
@@ -271,19 +278,36 @@ def chord_label(c: chord.Chord, k: key.Key) -> tuple[str, int] | None:
 
 
 _NUMERAL = r"(?:vii|iii|vi|iv|ii|v|i|VII|III|VI|IV|II|V|I)"
-_FIGURE_OK = re.compile(rf"^[b#-]?{_NUMERAL}(?:o|ø|\+)?7?(?:/[b#-]?{_NUMERAL})?$")
+_FIGURE_OK = re.compile(rf"^[b#-]?{_NUMERAL}(?:o|ø|\+)?(?:M7|b7|7)?(?:/[b#-]?{_NUMERAL})?$")
+
+
+def pretty(label: str) -> str:
+    """How a chord label is shown to people: 'IVb7' (music21's dominant seventh on IV) reads 'IV7',
+    so that '7' always means a dominant-type seventh and 'M7' a major seventh."""
+    return re.sub(rf"^([b#-]?{_NUMERAL})b7", r"\g<1>7", label).replace("-", "b", 1) if label else label
 
 
 def _canonical(figure: str, pcs: set[int], k: key.Key) -> str | None:
-    """Return a spelling of ``figure`` that music21 reads back as the same chord.
+    """Return a standard spelling of ``figure`` that music21 reads back as the same chord.
 
-    romanNumeralFromChord writes e.g. 'bVII' in minor keys, but RomanNumeral() reads 'bVII' as a
-    lowered subtonic (Db in E minor). Prefer the plain form ('VII') when that round-trips.
+    music21 sometimes writes cautionary figures, e.g. 'V75#3' for a dominant seventh in a minor
+    key, or 'bVII' for the subtonic. We try the plain textbook spellings (V7, viio7, VII, ...)
+    and keep the first one whose notes match exactly.
     """
+    m = re.match(rf"^([b#-]?)({_NUMERAL})(.*?)(/[b#-]?{_NUMERAL})?$", figure)
     candidates = [figure]
-    if figure[:1] in "b#-":
-        candidates.insert(0, figure[1:])
+    if m:
+        acc, numeral, _, secondary = m.group(1), m.group(2), m.group(3), m.group(4) or ""
+        for a in ([acc, ""] if acc else [""]):
+            for q in ("", "7", "M7", "o", "o7", "ø7", "+", "b7"):
+                candidates.append(f"{a}{numeral}{q}{secondary}")
+    seen = set()
     for f in candidates:
+        if f in seen:
+            continue
+        seen.add(f)
+        if not _FIGURE_OK.match(f):
+            continue
         try:
             if {p.pitchClass for p in roman.RomanNumeral(f, k).pitches} == pcs:
                 return f
@@ -320,7 +344,7 @@ def chord_function(label: str) -> str:
         target = label.split("/", 1)[1]
         return f"secondary dominant (points to {target})"
     base = label
-    for suffix in ("o7", "/o7", "ø7", "7", "65", "43", "42", "6", "o"):
+    for suffix in ("M7", "b7", "o7", "/o7", "ø7", "7", "65", "43", "42", "6", "o"):
         if base.endswith(suffix) and len(base) > len(suffix):
             base = base[: -len(suffix)]
             break
