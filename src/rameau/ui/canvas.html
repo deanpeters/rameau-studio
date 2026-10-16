@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rameau Studio</title>
+<link rel="stylesheet" href="canvas.css">
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+</head>
+<body>
+<header>
+  <div class="wordmark">Rameau<em>learn harmony by hearing it</em></div>
+  <button class="tune" id="tune" title="Choose or write a tune">
+    <span class="title" id="tuneTitle">Choose a tune</span>
+    <span class="meta" id="tuneMeta"></span>
+    <span class="caret">▾</span>
+  </button>
+  <nav class="views" id="views">
+    <button data-view="score" class="on">Score</button>
+    <button data-view="fingerprint">Signature sounds</button>
+    <button data-view="tutor">Ask the tutor</button>
+  </nav>
+  <div class="eras" id="eras"><div class="line"></div></div>
+</header>
+
+<main id="main">
+  <section class="view on" id="view-score">
+    <div class="welcome" id="welcome">
+      <h1>Hear how harmony makes a style</h1>
+      <p>Take one tune and hear it through different centuries. Click any chord to see why it's there.</p>
+      <div class="journeys" id="journeys"></div>
+    </div>
+    <div id="pages"></div>
+    <div class="strip-wrap" id="stripWrap" hidden>
+      <div class="legend">
+        <span><i style="background:var(--home)"></i>home</span>
+        <span><i style="background:var(--away)"></i>moving away</span>
+        <span><i style="background:var(--tension)"></i>tension</span>
+        <span><i style="background:var(--colour)"></i>colour</span>
+      </div>
+      <div class="strip" id="strip"><div class="playhead" id="playhead"></div></div>
+    </div>
+  </section>
+  <section class="view" id="view-fingerprint"><div class="prose" id="fingerprint">…</div></section>
+  <section class="view" id="view-tutor">
+    <div class="prose">
+      <h2>Ask the tutor</h2>
+      <div class="chat" id="chat"></div>
+      <div class="suggest" id="suggest"></div>
+      <form class="ask" id="askForm"><input id="askInput" placeholder="Ask about the music on screen…"><button class="chip">Ask</button></form>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="transport">
+    <button class="play" id="play" disabled title="Play / stop (space)">▶</button>
+    <button class="icon" id="rewind" title="Back to the start">⏮</button>
+    <button class="icon" id="loop" title="Loop: keep playing round while you shape the music">⟲</button>
+    <span class="time" id="time">0:00</span>
+  </div>
+  <div class="tempo" title="Tempo (beats per minute)">
+    <button class="icon" id="slower">−</button><b id="tempo">80</b><button class="icon" id="faster">+</button>
+  </div>
+  <div class="sounds" id="sounds"></div>
+  <div class="dials" id="dials"></div>
+  <button class="icon" id="advanced" title="All controls and the mixer">⚙</button>
+</footer>
+
+<div class="card" id="card"></div>
+<div class="menu" id="menu"></div>
+<div class="toast" id="toast"></div>
+<script src="canvas.js"></script>
+</body>
+</html>

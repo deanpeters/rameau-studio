@@ -22,6 +22,7 @@ APP_NAME = "Rameau Studio"
 datas = [
     (str(SRC / "styles"), "rameau/styles"),
     (str(SRC / "samples"), "rameau/samples"),
+    (str(SRC / "ui"), "rameau/ui"),           # the canvas: HTML, CSS, JS and the EB Garamond font (OFL)
     (str(ROOT / "LICENSE"), "."),
 ]
 # The MMA engine is run from source files, so ship it as data (without machine-specific indexes).
@@ -51,7 +52,7 @@ if fluid.exists():
 # Modules MMA imports that Rameau itself may not (MMA runs from source inside the packaged app).
 hiddenimports = collect_submodules("music21") + [
     "array", "atexit", "copy", "ctypes", "datetime", "getopt", "hashlib", "pickle", "random", "struct",
-    "tempfile", "textwrap", "types", "runpy", "keyring.backends",
+    "tempfile", "textwrap", "types", "runpy", "keyring.backends", "PySide6.QtWebChannel",
 ]
 if sys.platform != "win32":
     hiddenimports.append("fcntl")

@@ -31,6 +31,14 @@ Builds for macOS (Apple Silicon), Windows and Linux are attached to each
 
 Train your own from a folder of scores or iReal Pro playlists: `rameau train-folder ./my_charts --name smooth_jazz`.
 
+## The main screen
+
+Pick a tune, then move along the **era timeline** (Palestrina → Bach → Classical → Romantic → jazz →
+bossa → pop) and hear the same tune in each century. The **harmony strip** under the score colours every
+chord by its role (home, moving away, tension, colour); click one, or a chord symbol in the score, to see
+why it's there and try alternatives. Four dials (**Character, Motion, Feel, Space**) shape the music while it
+plays; ⚙ (or Ctrl/⌘+K) opens every detailed control and the mixer. Space bar plays and stops.
+
 ## What works today
 
 - **Harmonize a melody** (ABC, MusicXML or MIDI) in a learned style. The built-in Bach style

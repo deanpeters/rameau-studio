@@ -121,3 +121,37 @@ GM_NAMES = [
     "Synth Drum", "Reverse Cymbal", "Guitar Fret Noise", "Breath Noise", "Seashore", "Bird Tweet",
     "Telephone Ring", "Helicopter", "Applause", "Gunshot",
 ]
+
+
+# --------------------------------------------------------------------------- macro dials
+# Four musical dials on the main screen, each moving several detailed controls together.
+# Defaults sit in the middle of Motion and Feel (the style "as learned").
+
+MACROS = ("character", "motion", "feel", "space")
+
+
+def macros_from(c: Controls) -> dict[str, float]:
+    """Where the four dials sit for these detailed settings (an approximate inverse of apply_macro)."""
+    clamp = lambda v: max(0.0, min(1.0, v))
+    return {
+        "character": clamp(c.adventure / 0.7),
+        "motion": clamp((c.ornament_density / 2 + (c.bass_independence - 0.4) / 1.2) / 2),
+        "feel": clamp((c.expression / 2 + c.rubato / 2) / 2),
+        "space": clamp(c.reverb),
+    }
+
+
+def apply_macro(c: Controls, name: str, v: float) -> Controls:
+    import dataclasses
+
+    v = max(0.0, min(1.0, v))
+    if name == "character":
+        return dataclasses.replace(c, adventure=round(0.7 * v, 3))
+    if name == "motion":
+        return dataclasses.replace(c, ornament_density=round(2 * v, 3), bass_independence=round(0.4 + 1.2 * v, 3))
+    if name == "feel":
+        return dataclasses.replace(c, expression=round(2 * v, 3), rubato=round(2 * v, 3),
+                                   humanize=round(0.4 + 1.2 * v, 3))
+    if name == "space":
+        return dataclasses.replace(c, reverb=round(v, 3))
+    raise ValueError(name)

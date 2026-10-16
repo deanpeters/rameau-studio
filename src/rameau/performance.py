@@ -161,6 +161,14 @@ def performance_program(score, h, voices, bpm: int, style: Style | None = None, 
     return Program(notes_out, channels, bar_times, length)
 
 
+def beat_times(h, bpm: int, style: Style | None = None) -> list[float]:
+    """When each beat starts, in seconds, following the performance's ritardandos and fermatas."""
+    style = style or Style()
+    q_points, s_points = _beat_map(h, bpm, style)
+    spq = 60.0 / bpm
+    return [_to_seconds(c.beat.offset, q_points, s_points, spq) for c in h.choices]
+
+
 def write_midi(program, path: Path) -> Path:
     """Write a performed Program to a MIDI file (fixed 60 BPM map: one beat = one second)."""
     mf = mido.MidiFile(type=1, ticks_per_beat=TICKS)

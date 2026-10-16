@@ -42,6 +42,7 @@ class Result:
     band_source: str | None = None
     program: object | None = None       # livesynth.Program for live playback
     stage: str | None = "harmony"       # earliest stage re-run to produce this result (None = none)
+    beat_times: list[float] = field(default_factory=list)  # when each beat sounds (for the playhead)
 
 
 @dataclass
@@ -158,8 +159,15 @@ class Session:
         if rebuilt:
             p.svg_pages = render.to_svg_pages(p.score)
         self.result = Result(p.title, p.melody, p.h, p.r, p.score, midi, p.explanation, p.svg_pages,
-                             p.band_source, program, stage)
+                             p.band_source, program, stage, self._beat_times(p, c))
         return self.result
+
+    def _beat_times(self, p: _Piece, c: Controls) -> list[float]:
+        from .performance import beat_times, melody_style_from
+
+        if p.sound is not None and not p.sound.is_groove:
+            return beat_times(p.h, c.tempo, tune_style(melody_style_from(p.h), c))
+        return [b.beat.offset * 60.0 / c.tempo for b in p.h.choices]  # band grooves keep strict time
 
     def _comping(self, p: _Piece) -> bool:
         from .comping import FAMILIES

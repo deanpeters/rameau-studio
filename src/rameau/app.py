@@ -329,6 +329,7 @@ class MainWindow(QMainWindow):
         self._build_body()
         self._build_filter_dock()
         self._fill_sounds()
+        self._build_canvas()
         self._refresh_ai_bar()
         self._load_models()
         self._load_sample("old_hundredth.abc")
@@ -510,6 +511,8 @@ class MainWindow(QMainWindow):
         else:
             text = pairing_note(self._style_key(), style.title, snd, groove)
         self.hint.setText(f"💡 {text}")
+        if hasattr(self, "bridge") and text:
+            self.bridge.toast.emit(text)
 
     def _build_body(self) -> None:
         split = QSplitter(Qt.Horizontal)
@@ -683,7 +686,8 @@ class MainWindow(QMainWindow):
         self.mixer.setMinimumWidth(470)
         self.mixer.setMaximumWidth(620)
         row.addWidget(self.mixer, 2)
-        dock = QDockWidget("Filter unit & mixer", self)
+        dock = QDockWidget("All controls & mixer", self)
+        self.filter_dock = dock
         dock.setObjectName("filter-dock")
         dock.setWidget(body)
         dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
@@ -694,6 +698,92 @@ class MainWindow(QMainWindow):
         self._pos_timer.setInterval(200)
         self._pos_timer.timeout.connect(self._tick)
         self._pos_timer.start()
+
+    def _build_canvas(self) -> None:
+        """The main screen: an HTML canvas (score, harmony strip, transport, dials) over the same controls."""
+        from PySide6.QtWebChannel import QWebChannel
+        from PySide6.QtWidgets import QToolBar
+
+        from .ui.bridge import CanvasBridge
+
+        ui_dir = Path(__file__).parent / "ui"
+        self.canvas = QWebEngineView()
+        self.bridge = CanvasBridge(self)
+        channel = QWebChannel(self.canvas.page())
+        channel.registerObject("bridge", self.bridge)
+        self.canvas.page().setWebChannel(channel)
+        self.canvas.setUrl(QUrl.fromLocalFile(str(ui_dir / "canvas.html")))
+
+        old = self.takeCentralWidget()       # the classic panels stay alive (they still do the work) but hidden
+        old.setParent(self)
+        old.hide()
+        self.input_tabs.setParent(None)
+        drawer = QWidget()
+        dl = QVBoxLayout(drawer)
+        dl.setContentsMargins(10, 8, 6, 8)
+        head = QHBoxLayout()
+        head.addWidget(QLabel("<b>Your tune</b>"))
+        head.addStretch(1)
+        play_tune = QPushButton("Use this tune")
+        play_tune.setDefault(True)
+        play_tune.clicked.connect(self._run)
+        head.addWidget(play_tune)
+        close = QPushButton("×")
+        close.setFixedWidth(28)
+        close.clicked.connect(lambda: drawer.hide())
+        head.addWidget(close)
+        dl.addLayout(head)
+        dl.addWidget(self.input_tabs, 1)
+        drawer.setMinimumWidth(380)
+        drawer.hide()
+        self.tune_drawer = drawer
+        split = QSplitter(Qt.Horizontal)
+        split.addWidget(drawer)
+        split.addWidget(self.canvas)
+        split.setStretchFactor(1, 1)
+        self.setCentralWidget(split)
+        for tb in self.findChildren(QToolBar):
+            tb.hide()
+        self.filter_dock.hide()
+        self._keep_playing = False
+        # status messages become the canvas's quiet toasts; the old status bar goes away
+        self.statusBar().messageChanged.connect(lambda m: m and self.bridge.toast.emit(m))
+        self.statusBar().hide()
+        self._build_menus()
+
+    def _build_menus(self) -> None:
+        mb = self.menuBar()
+        file_menu = mb.addMenu("File")
+        a = file_menu.addAction("Open a tune…", lambda: (self._open_file(), self._run()))
+        a.setShortcut(QKeySequence.Open)
+        file_menu.addAction("Open an iReal Pro chart…", lambda: (self._open_ireal(), self.show_tune_drawer(2)))
+        a = file_menu.addAction("Export…", self._export)
+        a.setShortcut(QKeySequence.Save)
+        tune = mb.addMenu("Tune")
+        for p in sorted(SAMPLES.glob("*.abc")):
+            tune.addAction(p.stem.replace("_", " ").title(), lambda n=p.name: (self._load_sample(n), self._run()))
+        tune.addSeparator()
+        tune.addAction("Write or edit a tune…", lambda: self.show_tune_drawer(0))
+        tune.addAction("Enter notes step by step…", lambda: self.show_tune_drawer(1))
+        tune.addAction("Start from chords…", lambda: self.show_tune_drawer(2))
+        view = mb.addMenu("View")
+        a = view.addAction("All controls && mixer", lambda: self.filter_dock.setVisible(not self.filter_dock.isVisible()))
+        a.setShortcut("Ctrl+K")
+        view.addAction("Tune editor", lambda: self.tune_drawer.setVisible(not self.tune_drawer.isVisible()))
+        ai_menu = mb.addMenu("AI")
+        ai_menu.addAction("AI settings…", self._ai_settings)
+        ai_menu.addAction("Compose a tune with AI…", self._ai_compose)
+
+    def show_tune_drawer(self, tab: int) -> None:
+        self.input_tabs.setCurrentIndex(tab)
+        self.tune_drawer.show()
+        if tab == 1:
+            self.step_editor.setFocus()
+
+    def rerun_keep_playing(self) -> None:
+        """Re-harmonize after a style, sound or chord change; if music is playing, swap it in at the next bar."""
+        self._keep_playing = bool(self.live_player is not None and self.live_player.playing)
+        self._run()
 
     # ---------------------------------------------------------------- input
     def _load_sample(self, name: str) -> None:
@@ -729,7 +819,8 @@ class MainWindow(QMainWindow):
     def _run(self) -> None:
         if not self.go_btn.isEnabled():  # a job is already running
             return
-        self._release_audio()
+        if not getattr(self, "_keep_playing", False):
+            self._release_audio()
         style = self.styles[self.style_box.currentData()]
         key = None if self.key_box.currentText() == "Auto" else self._key_arg(self.key_box.currentText())
         snd, groove = self._current_sound()
@@ -777,11 +868,18 @@ class MainWindow(QMainWindow):
             self._show_html(f'<pre>{html.escape(result.band_source or "")}</pre>')
         self.text_view.setMarkdown(result.explanation)
         self._fill_chords()
+        if hasattr(self, "bridge"):
+            self.bridge.push_piece(result)
         if self.live_player is not None and result.program is not None:
-            self.live_player.stop()
-            self.live_player.load(result.program)
+            if self._keep_playing and self.live_player.playing:
+                self.live_player.swap(result.program, at="bar")
+                self.mixer.set_program(result.program)
+            else:
+                self.live_player.stop()
+                self.live_player.load(result.program)
+                self.mixer.set_program(self.live_player.program)
+            self._keep_playing = False
             self._loop_toggled(self.loop_box.isChecked())
-            self.mixer.set_program(self.live_player.program)
             self.play_btn.setEnabled(True)
             self._ready_message()
             return
@@ -793,6 +891,7 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def _failed(self, msg: str) -> None:
+        self._keep_playing = False
         self.go_btn.setEnabled(True)
         self.statusBar().showMessage("Something went wrong.")
         QMessageBox.warning(self, "Rameau", msg)
@@ -1089,6 +1188,8 @@ class MainWindow(QMainWindow):
                 self.text_view.setMarkdown(result.explanation)
             if stage in ("harmony", "lines"):
                 self._fill_chords()
+            if stage in ("harmony", "lines", "texture") and hasattr(self, "bridge"):
+                self.bridge.push_piece(result)
         if self._pending_controls is not None:
             pending, self._pending_controls = self._pending_controls, None
             self._controls_changed(pending)
@@ -1104,6 +1205,8 @@ class MainWindow(QMainWindow):
             self.live.close()
 
     def _tick(self) -> None:
+        if hasattr(self, "bridge"):
+            self.bridge.push_state()
         if self.live_player is None:
             return
         playing = self.live_player.playing
@@ -1213,6 +1316,24 @@ def main() -> int:
         if env.get("RAMEAU_SELFTEST_TAB") == "chords":
             w.input_tabs.setCurrentIndex(2)
             w._invent()
+        if env.get("RAMEAU_SELFTEST_RESTYLE"):
+            QTimer.singleShot(1500, lambda: w.bridge.journey(0))
+            QTimer.singleShot(6000, w._toggle_play)
+            QTimer.singleShot(8500, lambda: w.bridge.chooseStyle("palestrina"))
+            QTimer.singleShot(13000, lambda: (print("restyle:", w._style_key(), "playing", w.live_player.playing,
+                                                    "pos", round(w.live_player.position(), 1),
+                                                    "channels", [c.program for c in w.live_player.program.channels.values()],
+                                                    flush=True), w.grab().save(shot), app.quit()))
+            return app.exec()
+        if env.get("RAMEAU_SELFTEST_CANVAS"):
+            base = shot.replace(".png", "")
+            QTimer.singleShot(2500, lambda: w.grab().save(base + "-welcome.png"))
+            QTimer.singleShot(3000, lambda: w.bridge.journey(0))
+            QTimer.singleShot(9000, lambda: w.grab().save(base + "-score.png"))
+            QTimer.singleShot(9500, lambda: w.canvas.page().runJavaScript(
+                "document.querySelectorAll('.chord')[3].click()"))
+            QTimer.singleShot(11000, lambda: (w.grab().save(base + "-card.png"), app.quit()))
+            return app.exec()
         if env.get("RAMEAU_SELFTEST_LIVE"):
             import dataclasses
 
