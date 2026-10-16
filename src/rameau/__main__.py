@@ -38,7 +38,14 @@ def main() -> int:
     if args and args[0] in CLI_COMMANDS:
         from rameau.cli import main as cli_main
 
-        return cli_main(args)
+        try:
+            return cli_main(args)
+        except Exception:
+            # Report and exit instead of letting a packaged windowed app show a blocking error dialog.
+            import traceback
+
+            traceback.print_exc()
+            return 1
     if os.environ.get("RAMEAU_TRACE"):
         print("trace: starting app", file=sys.stderr, flush=True)
     from rameau.app import main as app_main

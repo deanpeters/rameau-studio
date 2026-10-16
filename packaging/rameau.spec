@@ -7,7 +7,12 @@
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
+
+try:  # Windows wheels built with delvewheel keep their DLLs in a sibling "<package>.libs" folder
+    from PyInstaller.utils.hooks import collect_delvewheel_libs_directory
+except ImportError:  # older PyInstaller
+    collect_delvewheel_libs_directory = None
 
 ROOT = Path(SPECPATH).parent
 SRC = ROOT / "src" / "rameau"
@@ -29,6 +34,9 @@ for name in ("mma.py", "LICENSE", "README", "UPSTREAM_COMMIT"):
         datas.append((str(ROOT / "engine" / "mma" / name), "engine/mma"))
 
 datas += collect_data_files("verovio")
+binaries = collect_dynamic_libs("verovio")
+if collect_delvewheel_libs_directory is not None:
+    datas, binaries = collect_delvewheel_libs_directory("verovio", datas=datas, binaries=binaries)
 datas += collect_data_files("music21", excludes=["corpus/**"])  # the score corpus is only used for training
 datas += collect_data_files("certifi")
 
@@ -60,6 +68,7 @@ a = Analysis(
     [str(SRC / "__main__.py")],
     pathex=[str(ROOT / "src")],
     datas=datas,
+    binaries=binaries,
     hiddenimports=hiddenimports,
     excludes=excludes,
     noarchive=False,
