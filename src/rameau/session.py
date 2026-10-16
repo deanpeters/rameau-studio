@@ -80,7 +80,25 @@ class Session:
     def _render(self, melody, h: Harmonization, sound: Sound | None, groove: str | None, tempo: int,
                 title: str, seed: int = 1) -> Result:
         r = realize(h)
-        score = render.build_score(melody, h, r, title, seed=seed)
+        from .comping import FAMILIES
+
+        comping = h.style.name in FAMILIES and sound is not None and not sound.is_groove
+        if comping:
+            import dataclasses
+
+            # The walking bass is the bass, so chord symbols are written without slash (inversion) basses.
+            score = render.build_score(melody, h, dataclasses.replace(r, inversions=[0] * len(r.inversions)),
+                                       title, seed=seed)
+        else:
+            score = render.build_score(melody, h, r, title, seed=seed)
+        if comping:
+            # Jazz and pop: a bass line and piano comping instead of four-part hymn writing.
+            from .comping import comp
+
+            stats = h.style.mode(h.key.mode)
+            share = stats.extended[0] / stats.extended[1] if stats.extended[1] else 0.0
+            score = comp(h, score.parts[0], h.style.name, seed=seed, extended_share=share)
+            score.metadata.title = title
         self._next_run()
         midi = self._new_file("song")
         band_src = None
@@ -90,7 +108,12 @@ class Session:
         if sound is not None and not sound.is_groove:
             from .performance import melody_style_from, perform
 
-            perform(score, h, sound.voices, tempo, midi, melody_style_from(h), seed=self._run)
+            if comping:
+                voices = [sound.voices[0], sound.voices[1], sound.voices[3]]  # melody, keyboard, bass
+                perform(score, h, voices, tempo, midi, melody_style_from(h), seed=self._run,
+                        levels={0: 88, 1: 54, 2: 76})
+            else:
+                perform(score, h, sound.voices, tempo, midi, melody_style_from(h), seed=self._run)
         else:
             if sound is not None:
                 groove = sound.groove_for(int(ts_text.split("/")[0]))

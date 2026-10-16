@@ -37,6 +37,14 @@ class Style:
     accent: int = 7            # strong-beat emphasis
     humanize_ms: float = 7.0
     humanize_vel: int = 3
+    swing: bool = False        # play written eighths long-short (off-beats at 2/3 of the beat)
+
+
+def _swing(q: float) -> float:
+    """Swing feel: an eighth note on the off-beat sounds at 2/3 of the beat instead of 1/2."""
+    base = float(int(q // 1))
+    f = q - base
+    return base + (f * 4 / 3 if f <= 0.5 else 2 / 3 + (f - 0.5) * 2 / 3)
 
 
 def _beat_map(h, bpm: int, style: Style) -> tuple[list[float], list[float]]:
@@ -86,8 +94,11 @@ def _phrase_arc(h) -> list[int]:
     return [round(a, 3) for a in arc]
 
 
-def perform(score, h, voices, bpm: int, path: Path, style: Style | None = None, seed: int = 1) -> Path:
-    """Write an expressive MIDI file. ``voices[i]`` lists General MIDI programs for part i (doubling allowed)."""
+def perform(score, h, voices, bpm: int, path: Path, style: Style | None = None, seed: int = 1,
+            levels: dict[int, int] | None = None) -> Path:
+    """Write an expressive MIDI file. ``voices[i]`` lists General MIDI programs for part i (doubling allowed).
+    ``levels`` overrides the loudness of each part (default: soprano, alto, tenor, bass)."""
+    levels = levels or VOICE_LEVEL
     style = style or Style()
     rng = random.Random(seed)
     spq = 60.0 / bpm
@@ -112,17 +123,20 @@ def perform(score, h, voices, bpm: int, path: Path, style: Style | None = None, 
             events = []
             for k, n in enumerate(notes):
                 q0, q1 = float(n.offset), float(n.offset + n.quarterLength)
-                t0 = _to_seconds(q0, q_points, s_points, spq)
-                t1 = _to_seconds(q1, q_points, s_points, spq)
+                w0, w1 = (_swing(q0), _swing(q1)) if style.swing else (q0, q1)
+                t0 = _to_seconds(w0, q_points, s_points, spq)
+                t1 = _to_seconds(w1, q_points, s_points, spq)
                 nxt = notes[k + 1] if k + 1 < len(notes) else None
                 same_next = nxt is not None and abs(float(nxt.offset) - q1) < 1e-6 and \
                     nxt.pitches[-1].midi == n.pitches[-1].midi
                 gap = 0.07 if same_next else 0.02
+                if part_index > 0 and n.quarterLength <= 1 and style.swing is False and len(n.pitches) > 1:
+                    gap = max(gap, 0.25 * (t1 - t0))  # keyboard chords in pop and Latin are played detached
                 if k > 0 or q0 > beat_starts[0]:
                     t0 += rng.uniform(-style.humanize_ms, style.humanize_ms) / 1000
                 t1 = max(t0 + 0.05, t1 - gap)
                 bi = max(0, bisect.bisect_right(beat_starts, q0) - 1)
-                vel = VOICE_LEVEL.get(part_index, 64) + round(arc[bi] * style.swell)
+                vel = levels.get(part_index, 64) + round(arc[bi] * style.swell)
                 if q0 in strong:
                     vel += style.accent
                 elif q0 in medium:
@@ -158,4 +172,7 @@ def melody_style_from(h) -> Style:
         return Style(rit=0.78, fermata=1.9, final_rit=0.65, swell=10)
     if name in ("classical", "romantic"):
         return Style(rit=0.85, fermata=1.5, final_rit=0.7, swell=12)
-    return Style(rit=0.92, fermata=1.25, final_rit=0.8, swell=8, accent=9)  # jazz/pop: steadier time
+    from .comping import FAMILIES, SWING_FAMILIES
+
+    swing = FAMILIES.get(name) in SWING_FAMILIES
+    return Style(rit=0.92, fermata=1.25, final_rit=0.8, swell=8, accent=9, swing=swing)  # jazz/pop: steadier time
