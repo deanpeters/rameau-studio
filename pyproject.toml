@@ -1,0 +1,31 @@
+[project]
+name = "rameau-studio"
+version = "0.1.0"
+description = "Learn harmony by hearing it: style-aware melody harmonization with explanations."
+readme = "README.md"
+authors = [
+    { name = "Dean Peters", email = "peters.dean@gmail.com" }
+]
+requires-python = ">=3.12"
+license = "GPL-3.0-or-later"
+dependencies = [
+    "music21>=10.5.0",
+    "pyside6>=6.12.0",
+    "verovio>=6.3.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.7,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "rameau"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[project.scripts]
+rameau = "rameau.cli:main"
+rameau-studio = "rameau.app:main"
