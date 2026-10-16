@@ -45,9 +45,21 @@ def _run_mma(args: list[str], cwd: Path | None = None) -> subprocess.CompletedPr
                           cwd=str(cwd or ENGINE))
 
 
+def _database_is_current() -> bool:
+    """The groove index exists and points at *this* copy of MMA (indexes store absolute paths)."""
+    db = ENGINE / "lib" / "stdlib" / ".mmaDB"
+    if not db.exists():
+        return False
+    try:
+        return str((ENGINE / "lib" / "stdlib").resolve()).encode() in db.read_bytes() or \
+            str(ENGINE / "lib" / "stdlib").encode() in db.read_bytes()
+    except OSError:
+        return False
+
+
 def ensure_groove_database() -> None:
-    """MMA needs an index of its groove library; build it once (about 2 seconds)."""
-    if not any((ENGINE / "lib" / "stdlib").glob(".mmaDB")):
+    """MMA needs an index of its groove library; (re)build it when missing or stale (about 2 seconds)."""
+    if not _database_is_current():
         proc = _run_mma(["-G"])
         if proc.returncode != 0:
             raise BandError(f"MMA could not index its grooves: {proc.stderr or proc.stdout}")

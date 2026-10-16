@@ -7,7 +7,7 @@ build/
 out/
 *.wav
 .DS_Store
-*.mmaDB
+.mmaDB*
 
 # Secrets: API keys come from environment variables or the OS keychain, never the repo
 .env

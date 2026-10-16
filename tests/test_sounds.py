@@ -42,3 +42,18 @@ def test_band_sound_uses_waltz_groove_in_three_four():
     r = s.harmonize_melody((SAMPLES / "greensleeves.abc").read_text(encoding="utf-8"), load_style("classical"),
                            sound=SOUNDS["alberti"])
     assert "Groove ArpeggioWaltz8" in r.band_source
+
+
+def test_stale_groove_index_is_rebuilt(tmp_path, monkeypatch):
+    """Regression: an index built elsewhere (different absolute paths) must be rebuilt, not trusted."""
+    db = band.ENGINE / "lib" / "stdlib" / ".mmaDB"
+    band.ensure_groove_database()
+    original = db.read_bytes()
+    try:
+        db.write_bytes(b"### mmaDB ... stale index pointing at /somewhere/else/lib/stdlib\n")
+        assert not band._database_is_current()
+        band.ensure_groove_database()
+        assert band._database_is_current()
+    finally:
+        if not band._database_is_current():
+            db.write_bytes(original)
