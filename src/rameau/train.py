@@ -12,9 +12,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Iterable
 
-from music21 import chord, corpus, stream
+from music21 import chord, corpus, key, stream
 
-from .music import chord_label, degree, melody_beats
+from .music import beats_per_bar, chord_label, degree, melody_beats, piece_key
 from .style import MODES, ModeStats, StyleModel
 
 MIN_CHORD_COUNT = 12  # rarer chords are dropped from the vocabulary
@@ -29,21 +29,93 @@ def _blank():
         "cadences": defaultdict(int),
         "cadence_approach": defaultdict(lambda: defaultdict(int)),
         "inversions": defaultdict(lambda: defaultdict(int)),
+        "rhythm": {"strong": [0, 0], "weak": [0, 0]},
+        "melody_intervals": defaultdict(int),
+        "cadence_melody": defaultdict(int),
+        "modulations": defaultdict(int),
+        "phrases": 0,
+        "activity": [0.0, 0.0],
+        "modes": defaultdict(int),
     }
+
+
+def _key_for(k):
+    return k.mode if k.mode in MODES else "major"
+
+
+def _local_key(score_notes: stream.Stream, home: key.Key, start: float, end: float) -> key.Key:
+    """Key of one phrase, if it clearly moved to a closely related key; otherwise the home key."""
+    seg = score_notes.getElementsByOffset(start, end, includeEndBoundary=False, mustBeginInSpan=False).stream()
+    if len(seg) < 8:
+        return home
+    try:
+        lk = seg.analyze("key")
+    except Exception:
+        return home
+    if lk.tonic.pitchClass == home.tonic.pitchClass and lk.mode == home.mode:
+        return home
+    home_fit = next((a.correlationCoefficient for a in [lk] + list(lk.alternateInterpretations)
+                     if a.tonic.pitchClass == home.tonic.pitchClass and a.mode == home.mode), -1.0)
+    closely_related = abs(lk.sharps - home.sharps) <= 1
+    return lk if closely_related and lk.correlationCoefficient - home_fit >= 0.15 else home
+
+
+def _relation(local: key.Key, home: key.Key) -> str:
+    """Name a local key relative to the home key, e.g. 'V' (the dominant) or 'vi' (relative minor)."""
+    if local is home:
+        return "home"
+    tonic = chord.Chord([local.tonic, local.tonic.transpose("M3" if local.mode == "major" else "m3"),
+                         local.tonic.transpose("P5")])
+    lab = chord_label(tonic, home)
+    return lab[0] if lab else "other"
 
 
 def count_score(score: stream.Score, acc: dict) -> bool:
     """Add one harmonized score's statistics into ``acc`` (keyed by mode). Returns False if skipped."""
     if len(score.parts) < 3:
         return False
-    k = score.analyze("key")
-    stats = acc[k.mode if k.mode in MODES else "major"]
+    home, mode_name = piece_key(score)
     soprano = score.parts[0]
     chords = score.chordify().flatten().getElementsByClass(chord.Chord).stream()
+    notes = score.flatten().notes.stream()
+    beats = melody_beats(soprano)
+    if not beats:
+        return False
 
-    prev = None
-    first = True
-    for b in melody_beats(soprano):
+    # Split into phrases and find each phrase's local key (modulation tracking).
+    segments, a = [], 0
+    for b in beats:
+        if b.phrase_end:
+            segments.append((a, b.index))
+            a = b.index + 1
+    if a < len(beats):
+        segments.append((a, len(beats) - 1))
+    key_of = {}
+    for a, z in segments:
+        lk = _local_key(notes, home, beats[a].offset, beats[z].offset + beats[z].duration) if z - a >= 5 else home
+        rel = _relation(lk, home)
+        acc[_key_for(home)]["modulations"][rel] += 1
+        acc[_key_for(home)]["phrases"] += 1
+        for i in range(a, z + 1):
+            key_of[i] = lk
+
+    g = acc[_key_for(home)]
+    g["modes"][mode_name] += 1
+    g["activity"][0] += sum(len(p.flatten().notes) for p in score.parts)
+    g["activity"][1] += len(beats) * len(score.parts)
+
+    prev, prev_key, first, prev_pitch = None, None, True, None
+    for b in beats:
+        k = key_of.get(b.index, home)
+        stats = acc[_key_for(k)]
+        if k is not prev_key:
+            prev = None
+        prev_key = k
+        if b.pitch is not None and b.onset:
+            if prev_pitch is not None:
+                step = max(-12, min(12, b.pitch.midi - prev_pitch))
+                g["melody_intervals"][str(step)] += 1
+            prev_pitch = b.pitch.midi
         c = chords.getElementAtOrBefore(b.offset)
         lab = chord_label(c, k) if c is not None else None
         if lab is None or b.pitch is None:
@@ -58,8 +130,13 @@ def count_score(score: stream.Score, acc: dict) -> bool:
             first = False
         if prev is not None:
             stats["transitions"][prev][label] += 1
+            strong = b.beat == 1 or (beats_per_bar(soprano, b.offset) == 4 and b.beat == 3)
+            slot = stats["rhythm"]["strong" if strong else "weak"]
+            slot[1] += 1
+            slot[0] += int(label != prev)
         if b.phrase_end:
             stats["cadences"][label] += 1
+            stats["cadence_melody"][str(degree(b.pitch, k))] += 1
             if prev is not None:
                 stats["cadence_approach"][label][prev] += 1
         prev = label
@@ -88,6 +165,13 @@ def _finish(raw: dict) -> ModeStats:
         cadences=filt1(plain(raw["cadences"])),
         cadence_approach=filt2(plain(raw["cadence_approach"])),
         inversions={k: v for k, v in plain(raw["inversions"]).items() if k in keep},
+        rhythm=raw["rhythm"],
+        melody_intervals=plain(raw["melody_intervals"]),
+        cadence_melody=plain(raw["cadence_melody"]),
+        modulations=plain(raw["modulations"]),
+        phrases=raw["phrases"],
+        activity=raw["activity"],
+        modes=plain(raw["modes"]),
     )
 
 

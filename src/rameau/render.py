@@ -40,8 +40,15 @@ def spell(midi: int, k, chord_pitches=()) -> pitch.Pitch:
     return p
 
 
-def _voice_part(melody: stream.Part, h: Harmonization, r: Realization, voice: int, name: str, clef_cls) -> stream.Part:
-    """A part with one note per beat, laid out on the melody's measures; repeated notes are merged."""
+def _voice_part(melody: stream.Part, h: Harmonization, r: Realization, voice: int, name: str, clef_cls,
+                events) -> stream.Part:
+    """One lower voice laid out on the melody's measures, from texture events.
+
+    Notes marked ``hold`` merge into the previous note when the pitch is unchanged (tied across
+    bar lines). Roman numerals go under the bass at each chord change.
+    """
+    from music21 import roman, tie
+
     part = stream.Part(id=name)
     part.partName = name
     beats_by_measure: dict[int, list[int]] = {}
@@ -49,6 +56,8 @@ def _voice_part(melody: stream.Part, h: Harmonization, r: Realization, voice: in
         beats_by_measure.setdefault(c.beat.measure, []).append(t)
 
     first = True
+    prev_n = None
+    prev_end = None
     for m in melody.getElementsByClass(stream.Measure):
         nm = stream.Measure(number=m.number)
         nm.paddingLeft = m.paddingLeft
@@ -65,30 +74,45 @@ def _voice_part(melody: stream.Part, h: Harmonization, r: Realization, voice: in
                 nm.insert(0, copy.deepcopy(m.keySignature))
             if m.timeSignature:
                 nm.insert(0, copy.deepcopy(m.timeSignature))
-        prev_n = None
+        same_measure_prev = None
         for t in beats_by_measure.get(m.number, []):
             c = h.choices[t]
-            midi = r.voicings[t][voice]
-            pos = c.beat.offset - m.offset
-            if prev_n is not None and prev_n.pitch.midi == midi and h.choices[t].label == h.choices[t - 1].label:
-                prev_n.quarterLength += c.beat.duration
-                continue
-            from music21 import roman
-
-            n = note.Note(spell(midi, h.key, roman.RomanNumeral(c.label, h.key).pitches), quarterLength=c.beat.duration)
-            nm.insert(pos, n)
-            prev_n = n
-            if voice == 3:
-                n.addLyric(c.label)
+            chord_pitches = roman.RomanNumeral(c.label, h.key).pitches
+            changed = t == 0 or c.label != h.choices[t - 1].label
+            for j, e in enumerate(events[t]):
+                abs_off = c.beat.offset + e.rel
+                lyric = voice == 3 and j == 0 and changed
+                if (e.hold and prev_n is not None and prev_n.pitch.midi == e.midi
+                        and prev_end is not None and abs(prev_end - abs_off) < 1e-6 and not lyric):
+                    if same_measure_prev is prev_n:
+                        prev_n.quarterLength += e.dur
+                        prev_end += e.dur
+                        continue
+                    # tie across the bar line
+                    n = note.Note(spell(e.midi, h.key, chord_pitches), quarterLength=e.dur)
+                    prev_n.tie = tie.Tie("start") if prev_n.tie is None else tie.Tie("continue")
+                    n.tie = tie.Tie("stop")
+                else:
+                    n = note.Note(spell(e.midi, h.key, chord_pitches), quarterLength=e.dur)
+                nm.insert(abs_off - m.offset, n)
+                if lyric:
+                    n.addLyric(c.label)
+                prev_n, same_measure_prev, prev_end = n, n, abs_off + e.dur
         part.append(nm)
     return part
 
 
-def build_score(melody: stream.Part, h: Harmonization, r: Realization, title: str = "Untitled") -> stream.Score:
+def build_score(melody: stream.Part, h: Harmonization, r: Realization, title: str = "Untitled",
+                texture=None) -> stream.Score:
+    """Four-part score. ``texture`` (see texture.py) defaults to the style's own texture."""
+    from .texture import apply_texture, texture_for
+
+    texture = texture or texture_for(h.style.name)
+    events = apply_texture(h, r, texture)
     score = stream.Score()
     score.metadata = metadata.Metadata()
     score.metadata.title = title
-    score.metadata.composer = f"Harmonized by Rameau in {h.style.title} style"
+    score.metadata.composer = f"Harmonized by Rameau in {h.style.title} style ({texture.name.lower()} texture)"
 
     sop = copy.deepcopy(melody)
     sop.id = "Soprano"
@@ -115,7 +139,8 @@ def build_score(melody: stream.Part, h: Harmonization, r: Realization, title: st
         except Exception:
             pass
 
-    parts = [sop] + [_voice_part(melody, h, r, i, name, cl) for i, (name, cl) in enumerate(PART_INFO) if i > 0]
+    parts = [sop] + [_voice_part(melody, h, r, i, name, cl, events[i]) for i, (name, cl) in enumerate(PART_INFO)
+                     if i > 0]
     for p, inst in zip(parts, (instrument.Soprano(), instrument.Alto(), instrument.Tenor(), instrument.Bass())):
         p.insert(0, inst)
         score.insert(0, p)

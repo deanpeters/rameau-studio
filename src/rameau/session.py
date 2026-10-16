@@ -41,6 +41,28 @@ class Session:
         """Harmonize and render. Play with ``sound`` (an ensemble or recommended band) or a raw MMA ``groove``."""
         melody = load_melody(source_path) if source_path else load_melody(melody_text)
         h = harmonize(melody, style, key=key or None, locks=self.locks)
+        return self._render(melody, h, sound, groove, tempo, title)
+
+    def generate_from_pattern(self, pattern_text: str, style: StyleModel, key: str | None = None,
+                              sound: Sound | None = None, groove: str | None = None, tempo: int = 80,
+                              seed: int | None = None, title: str = "From a chord pattern") -> Result:
+        """Compose a melody for the chord pattern in the style, then voice and render it."""
+        from music21 import key as m21key
+
+        from .generate import generate, parse_pattern
+
+        k = m21key.Key(key) if key else None
+        bars, k = parse_pattern(pattern_text, 4, k)
+        melody, locks = generate(style, bars, k, 4, seed=seed)
+        h = harmonize(melody, style, key=k, locks=locks,
+                      lock_reason="From your chord pattern; the melody was composed to fit it.")
+        result = self._render(melody, h, sound, groove, tempo, title)
+        result.explanation = (f"Melody composed by Rameau from your chord pattern, using {style.title}'s melodic "
+                              f"habits (seed {seed}).\n\n" + result.explanation)
+        return result
+
+    def _render(self, melody, h: Harmonization, sound: Sound | None, groove: str | None, tempo: int,
+                title: str) -> Result:
         r = realize(h)
         score = render.build_score(melody, h, r, title)
         midi = self.workdir / "song.mid"

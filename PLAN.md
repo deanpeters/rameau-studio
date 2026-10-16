@@ -171,7 +171,23 @@ Feedback from Dean after the first run (2026-10-15):
 - **Step-entry notation editing** (future): enter and edit melodies note by note on the
   staff, not only as ABC text.
 
+Built in session 1, part 2 (2026-10-15), now public at https://github.com/deanpeters/rameau-studio:
+- **Era textures** (`texture.py`): chorale (passing notes, 4-3 suspensions), polyphony (held common
+  tones), continuo (held bass), classical (repeated-eighth accompaniment).
+- **Analysis fixes**: phrase endings from rests/long notes on strong beats; home key from the
+  piece's final (modal music) with mode names; per-phrase local keys (modulation tracking);
+  learned harmonic rhythm (strong vs weak beats), melodic intervals, cadence melody notes,
+  voice activity. The harmonizer now follows each style's harmonic rhythm.
+- **Generate from a pattern** (`generate.py`): chord symbols or Roman numerals, or a progression
+  invented from the style's statistics; melody composed by forward-filtering/backward-sampling
+  over the style's melodic habits; new variation each press.
+- **AI mode** (`ai.py`): bring-your-own-key tutor + composer, Claude Haiku by default, keys from
+  env or OS keychain only; friendly errors (no key, bad key, rate limit, no credits).
+
 Known limitations to address next:
+- Local-key detection is cautious and under-counts Bach's modulations.
+- AI mode was verified up to the API's billing check (the test account had no credits); a full
+  live run still needs a funded key.
 - Modal music (Palestrina, Monteverdi) is analysed as major/minor; add modal keys.
 - Phrase endings without fermatas are guessed from long notes.
 - Keys are analysed once per piece (no modulation tracking) in training and harmonizing.

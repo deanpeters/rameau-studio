@@ -37,6 +37,14 @@ class ModeStats:
     cadences: dict[str, int] = field(default_factory=dict)
     cadence_approach: dict[str, dict[str, int]] = field(default_factory=dict)  # final -> prev -> n
     inversions: dict[str, dict[str, int]] = field(default_factory=dict)  # chord -> "0".."3" -> n
+    # harmonic rhythm: [chord changes, beats] on strong and weak beats
+    rhythm: dict[str, list[int]] = field(default_factory=dict)
+    melody_intervals: dict[str, int] = field(default_factory=dict)  # top-voice steps in semitones
+    cadence_melody: dict[str, int] = field(default_factory=dict)    # top-voice degree at phrase ends
+    modulations: dict[str, int] = field(default_factory=dict)       # local key relation -> phrases
+    phrases: int = 0
+    activity: list[float] = field(default_factory=lambda: [0.0, 0.0])  # [note onsets, voice-beats]
+    modes: dict[str, int] = field(default_factory=dict)              # Dorian, Phrygian, ... -> pieces
 
     # ---- probabilities -------------------------------------------------
     def _total(self, d: dict[str, int]) -> int:
@@ -70,6 +78,20 @@ class ModeStats:
     def emission_share(self, chord: str, degree: int) -> tuple[int, int]:
         row = self.emissions.get(chord, {})
         return row.get(str(degree), 0), self._total(row)
+
+    def p_change(self, strong: bool) -> float:
+        """How often the chord changes on a strong / weak beat (harmonic rhythm)."""
+        changed, total = self.rhythm.get("strong" if strong else "weak", [0, 0])
+        return (changed + 1) / (total + 2)
+
+    def p_change_overall(self) -> float:
+        c = sum(v[0] for v in self.rhythm.values())
+        t = sum(v[1] for v in self.rhythm.values())
+        return (c + 1) / (t + 2)
+
+    def p_interval(self, semitones: int) -> float:
+        total = sum(self.melody_intervals.values())
+        return (self.melody_intervals.get(str(semitones), 0) + 0.2) / (total + 0.2 * 25)
 
     def inversion_probs(self, chord: str) -> dict[int, float]:
         row = self.inversions.get(chord, {})

@@ -19,7 +19,17 @@ Status: early development. See [PLAN.md](PLAN.md).
   (parallel fifths and octaves, crossing, spacing, leading tone, sevenths).
 - **Export** MIDI, MusicXML (opens in MuseScore and similar), SVG sheet music and a written explanation.
 - **Play** through FluidSynth.
-- **Style fingerprints**: compare the signature habits of styles side by side.
+- **Style fingerprints**: compare the signature habits of styles side by side: chords, harmonic
+  rhythm, melodic steps vs leaps, voice activity, modes and modulations.
+- **Era textures**: Bach's passing notes and suspensions, Palestrina's held common tones,
+  Monteverdi's continuo bass, Classical repeated-note accompaniment.
+- **Generate from a pattern**: type chords (`| C Am | F G7 |`) or Roman numerals (`| I vi | IV V7 |`),
+  or let a style invent a progression; Rameau composes a melody and four voices in that style.
+- **Style + sound guidance**: each style recommends ensembles (choir + organ, string quartet,
+  cornetts & sackbuts…) and explains unusual pairings.
+- **Optional AI mode** (bring your own Anthropic API key): a tutor that answers questions about the
+  piece on screen, grounded in Rameau's analysis, and a melody composer. Default model:
+  `claude-haiku-5-5`.
 
 ## Try it
 
@@ -34,6 +44,16 @@ Playback needs FluidSynth (`brew install fluid-synth`, `apt install fluidsynth`)
 SoundFont. Put [GeneralUser GS](https://schristiancollins.com/generaluser.php) in
 `~/Library/Application Support/rameau-studio/soundfonts/` (macOS),
 `%APPDATA%\rameau-studio\soundfonts\` (Windows) or `~/.local/share/rameau-studio/soundfonts/` (Linux).
+
+## AI mode (optional)
+
+Rameau works fully without AI. To enable the tutor and AI composer, either:
+
+- set the `ANTHROPIC_API_KEY` environment variable, or
+- open **AI settings…** in the app and paste a key. It is stored in your operating system's
+  keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service), never in a file.
+
+Choose any Claude model in AI settings (default `claude-haiku-5-5`), or set `RAMEAU_AI_MODEL`.
 
 ## How it works
 

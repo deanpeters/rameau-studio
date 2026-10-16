@@ -145,6 +145,7 @@ def melody_beats(part: stream.Part) -> list[Beat]:
     has_fermatas = any(_has_fermata(n) for n in notes if n.isNote)
     last_note = next((n for n in reversed(notes) if n.isNote), None)
     beats: list[Beat] = []
+    last_end = -100
     for i, (off, mnum, bnum, blen) in enumerate(beat_grid(part)):
         sounding = flat.getElementAtOrBefore(off)
         p = sounding.pitch if sounding is not None and sounding.isNote else None
@@ -154,10 +155,15 @@ def melody_beats(part: stream.Part) -> list[Beat]:
             if _has_fermata(sounding) or sounding is last_note:
                 end = True
             elif not has_fermatas:
-                # Without fermatas: a note of 2+ beats followed by a rest or a bar line ends a phrase.
+                # Without fermatas: a note followed by a rest, or a long note (2+ beats) starting on a
+                # strong beat, ends a phrase, as long as the phrase has had at least 4 beats.
                 nxt = flat.getElementAfterElement(sounding)
+                strong = bnum == 1 or (beats_per_bar(part, off) == 4 and bnum == 3)
                 long_note = sounding.quarterLength >= 2 * blen
-                end = long_note and (nxt is None or nxt.isRest or abs((sounding.offset + sounding.quarterLength) % 4) < 1e-6)
+                since = i - last_end
+                end = since >= 4 and ((nxt is not None and nxt.isRest) or (long_note and strong))
+        if end:
+            last_end = i
         beats.append(Beat(i, off, mnum, bnum, blen, p, onset, end))
     # Never treat the opening as a cadence; the last note always ends a phrase (once).
     if beats:
@@ -168,6 +174,44 @@ def melody_beats(part: stream.Part) -> list[Beat]:
             b.phrase_end = False
         beats[last_onset].phrase_end = True
     return beats
+
+
+def beats_per_bar(part: stream.Stream, offset: float) -> int:
+    ts = part.flatten().getElementAtOrBefore(offset, [meter.TimeSignature])
+    return ts.beatCount if ts is not None else 4
+
+
+MODE_NAMES = {  # (2nd, 3rd, 4th, 6th, 7th) intervals above the final -> mode
+    (2, 4, 5, 9, 11): "Ionian (major)", (2, 3, 5, 9, 10): "Dorian", (1, 3, 5, 8, 10): "Phrygian",
+    (2, 4, 6, 9, 11): "Lydian", (2, 4, 5, 9, 10): "Mixolydian", (2, 3, 5, 8, 10): "Aeolian (minor)",
+}
+
+
+def piece_key(score: stream.Score) -> tuple[key.Key, str]:
+    """Home key of a full score, and its mode name.
+
+    Older music (Renaissance modes) is anchored by its *final*, the bass note of the last chord,
+    which key-profile analysis often misses. We trust the final and decide major/minor from how
+    often the 3rd above it is major or minor in the piece.
+    """
+    best = score.analyze("key")
+    notes = list(score.flatten().notes)
+    if not notes:
+        return best, ""
+    end = max(n.offset for n in notes)
+    last_chord = [p for n in notes if n.offset >= end - 1e-6 for p in n.pitches]
+    final = min(last_chord, key=lambda p: p.ps).pitchClass
+    counts = [0] * 12
+    for n in notes:
+        for p in n.pitches:
+            counts[(p.pitchClass - final) % 12] += n.quarterLength
+    minor = counts[3] > counts[4]
+    if best.tonic.pitchClass == final:
+        k = best
+    else:
+        k = key.Key(pitch.Pitch(final).name, "minor" if minor else "major")
+    picks = tuple(max(opts, key=lambda i: counts[i]) for opts in ((1, 2), (3, 4), (5, 6), (8, 9), (10, 11)))
+    return k, MODE_NAMES.get(picks, "mixed")
 
 
 def detect_key(part: stream.Stream) -> key.Key:

@@ -20,6 +20,13 @@ class Fingerprint:
     top_moves: list[tuple[str, str, float]]
     cadence_endings: list[tuple[str, float]]
     authentic_share: float                 # phrase endings reached by dominant -> tonic
+    strong_change: float = 0.0             # chord changes on strong beats
+    weak_change: float = 0.0               # chord changes on weak beats
+    stepwise: float = 0.0                  # top-voice moves by step (1-2 semitones)
+    leaps: float = 0.0                     # top-voice leaps larger than a 4th
+    activity: float = 0.0                  # notes per voice per beat
+    modes: list[tuple[str, float]] = field(default_factory=list)
+    modulations: list[tuple[str, float]] = field(default_factory=list)
     signature_moves: list[tuple[str, str, float, float]] = field(default_factory=list)  # a, b, share, x-times
 
 
@@ -61,7 +68,30 @@ def fingerprint(style: StyleModel) -> Fingerprint:
     all_trans = sum(trans.values()) or 1
     cad_total = sum(cad.values()) or 1
     authentic = sum(n for (p, f), n in approach.items() if f in TONICS and p in DOMINANTS)
+    rhythm = {"strong": [0, 0], "weak": [0, 0]}
+    intervals, modes, mods = Counter(), Counter(), Counter()
+    act = [0.0, 0.0]
+    for m in style.modes.values():
+        for kind in rhythm:
+            c, t = m.rhythm.get(kind, [0, 0])
+            rhythm[kind][0] += c
+            rhythm[kind][1] += t
+        intervals.update({int(k): v for k, v in m.melody_intervals.items()})
+        modes.update(m.modes)
+        mods.update(m.modulations)
+        act[0] += m.activity[0]
+        act[1] += m.activity[1]
+    moved = sum(v for k, v in intervals.items() if k != 0) or 1
+    mods_total = sum(mods.values()) or 1
+    modes_total = sum(modes.values()) or 1
     return Fingerprint(
+        strong_change=rhythm["strong"][0] / (rhythm["strong"][1] or 1),
+        weak_change=rhythm["weak"][0] / (rhythm["weak"][1] or 1),
+        stepwise=sum(v for k, v in intervals.items() if abs(k) in (1, 2)) / moved,
+        leaps=sum(v for k, v in intervals.items() if abs(k) > 5) / moved,
+        activity=act[0] / (act[1] or 1),
+        modes=[(k, v / modes_total) for k, v in modes.most_common(3)],
+        modulations=[(k, v / mods_total) for k, v in mods.most_common(4) if k != "home"],
         style=style,
         chords=total,
         top_chords=[(c, n / total) for c, n in counts.most_common(8)],
@@ -114,6 +144,13 @@ def table_rows(fps: list[Fingerprint]) -> list[tuple[str, list[str]]]:
         ("Chromatic chords (secondary dominants, borrowed)", [_p(fp.chromatic_share) for fp in fps]),
         ("Root position (bass on the chord's root)", [_p(fp.root_position_share) for fp in fps]),
         ("Chord changes on a beat", [_p(fp.change_rate) for fp in fps]),
+        ("Harmonic rhythm: changes on strong / weak beats", [f"{_p(fp.strong_change)} / {_p(fp.weak_change)}"
+                                                               for fp in fps]),
+        ("Melody moves by step / leaps beyond a 4th", [f"{_p(fp.stepwise)} / {_p(fp.leaps)}" for fp in fps]),
+        ("Voice activity (notes per voice per beat)", [f"{fp.activity:.2f}" for fp in fps]),
+        ("Modes (by the piece's final)", [", ".join(f"{k} {_p(v)}" for k, v in fp.modes) or "n/a" for fp in fps]),
+        ("Phrases that move to another key", [", ".join(f"{k} {_p(v)}" for k, v in fp.modulations) or "none"
+                                              for fp in fps]),
         ("Most common moves", ["<br>".join(f"{a} → {b} {_p(s)}" for a, b, s in fp.top_moves[:4]) for fp in fps]),
         ("Phrases end on", [", ".join(f"{c} {_p(s)}" for c, s in fp.cadence_endings[:3]) for fp in fps]),
         ("Endings by dominant → home", [_p(fp.authentic_share) for fp in fps]),

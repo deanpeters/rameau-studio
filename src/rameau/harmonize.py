@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from music21 import key as m21key
 from music21 import roman
 
-from .music import DEGREE_NAMES, Beat, chord_function, degree, detect_key, melody_beats
+from .music import DEGREE_NAMES, Beat, beats_per_bar, chord_function, degree, detect_key, melody_beats
 from .style import ModeStats, StyleModel, log
 
 FINAL_TONIC_BONUS = 8.0  # pieces almost always end on the home chord
@@ -126,7 +126,8 @@ def _local(stats: ModeStats, chord: str, b: Beat, k: m21key.Key, is_last: bool, 
 
 
 def harmonize(melody, style: StyleModel, key: m21key.Key | str | None = None,
-              locks: dict[int, str] | None = None, n_alternatives: int = 3) -> Harmonization:
+              locks: dict[int, str] | None = None, n_alternatives: int = 3,
+              lock_reason: str | None = None) -> Harmonization:
     """Harmonize ``melody`` (a music21 Part) in ``style``.
 
     ``locks`` maps beat index -> roman numeral the user wants fixed; the rest is re-solved around it.
@@ -145,6 +146,18 @@ def harmonize(melody, style: StyleModel, key: m21key.Key | str | None = None,
         raise ValueError("The melody has no notes.")
 
     trans = [[log(stats.p_transition(a, b)) for b in vocab] for a in vocab]
+
+    # Harmonic rhythm: how much more (or less) this style changes chord on strong vs weak beats.
+    po = stats.p_change_overall()
+    strong = [b.beat == 1 or (beats_per_bar(melody, b.offset) == 4 and b.beat == 3) for b in beats]
+    change_adj, stay_adj = [], []
+    for t in range(T):
+        pc = stats.p_change(strong[t])
+        change_adj.append(math.log(pc / po))
+        stay_adj.append(math.log((1 - pc) / (1 - po)))
+
+    def tr(t: int, i: int, j: int) -> float:
+        return trans[i][j] + (stay_adj[t] if i == j else change_adj[t])
     local = []
     for t, b in enumerate(beats):
         row = [_local(stats, c, b, k, t == T - 1, tonic) for c in vocab]
@@ -158,8 +171,8 @@ def harmonize(melody, style: StyleModel, key: m21key.Key | str | None = None,
     for t in range(1, T):
         new, ptr = [], []
         for j in range(n):
-            best_i = max(range(n), key=lambda i: score[i] + trans[i][j])
-            new.append(score[best_i] + trans[best_i][j] + local[t][j])
+            best_i = max(range(n), key=lambda i: score[i] + tr(t, i, j))
+            new.append(score[best_i] + tr(t, best_i, j) + local[t][j])
             ptr.append(best_i)
         score, back = new, back + [ptr]
     j = max(range(n), key=lambda i: score[i])
@@ -177,10 +190,10 @@ def harmonize(melody, style: StyleModel, key: m21key.Key | str | None = None,
 
     fwd = [[log(stats.p_start(c)) + local[0][j] for j, c in enumerate(vocab)]]
     for t in range(1, T):
-        fwd.append([lse([fwd[t - 1][i] + trans[i][j] for i in range(n)]) + local[t][j] for j in range(n)])
+        fwd.append([lse([fwd[t - 1][i] + tr(t, i, j) for i in range(n)]) + local[t][j] for j in range(n)])
     bwd = [[0.0] * n for _ in range(T)]
     for t in range(T - 2, -1, -1):
-        bwd[t] = [lse([trans[i][j] + local[t + 1][j] + bwd[t + 1][j] for j in range(n)]) for i in range(n)]
+        bwd[t] = [lse([tr(t + 1, i, j) + local[t + 1][j] + bwd[t + 1][j] for j in range(n)]) for i in range(n)]
     total = lse(fwd[-1])
     posteriors = [[math.exp(fwd[t][j] + bwd[t][j] - total) for j in range(n)] for t in range(T)]
 
@@ -188,6 +201,15 @@ def harmonize(melody, style: StyleModel, key: m21key.Key | str | None = None,
     choices = []
     for t, (b, lab) in enumerate(zip(beats, labels)):
         post = posteriors[t]
+        if t in locks:
+            # The chord was fixed, so the posterior is 100%/0%. Rank alternatives by how well they would
+            # fit this beat on their own: melody fit plus flow from the previous chord.
+            prev_lab = labels[t - 1] if t else None
+            fit = [_emission(stats, c, b, k) + (log(stats.p_transition(prev_lab, c)) if prev_lab
+                                                else log(stats.p_start(c))) for c in vocab]
+            mx = max(fit)
+            w = [math.exp(f - mx) for f in fit]
+            post = [x / sum(w) for x in w]
         ranked = sorted(range(n), key=lambda j: -post[j])
         alts = [Alternative(vocab[j], chord_symbol(vocab[j], k), post[j]) for j in ranked if vocab[j] != lab][:n_alternatives]
         prev = labels[t - 1] if t else None
@@ -197,7 +219,7 @@ def harmonize(melody, style: StyleModel, key: m21key.Key | str | None = None,
         choices.append(ChordChoice(
             beat=b, label=lab, symbol=chord_symbol(lab, k), function=chord_function(lab), melody_role=role,
             confidence=post[vocab.index(lab)], alternatives=alts,
-            reasons=_reasons(stats, style, k, b, lab, prev, nxt, role, cad, t in locks),
+            reasons=_reasons(stats, style, k, b, lab, prev, nxt, role, cad, t in locks, lock_reason),
             cadence=cad, locked=t in locks,
         ))
         top = alts[0] if alts else None
@@ -219,11 +241,11 @@ def _pct(a: int, b: int) -> str:
 
 
 def _reasons(stats: ModeStats, style: StyleModel, k, b: Beat, lab: str, prev: str | None, nxt: str | None,
-             role: str, cad: str | None, locked: bool) -> list[str]:
+             role: str, cad: str | None, locked: bool, lock_reason: str | None = None) -> list[str]:
     who = style.title
     out = []
     if locked:
-        out.append("You locked this chord; the other chords were chosen to fit around it.")
+        out.append(lock_reason or "You locked this chord; the other chords were chosen to fit around it.")
     if b.pitch is not None:
         deg = degree(b.pitch, k)
         hit, tot = stats.emission_share(lab, deg)
@@ -232,7 +254,11 @@ def _reasons(stats: ModeStats, style: StyleModel, k, b: Beat, lab: str, prev: st
     if prev is not None:
         hit, tot = stats.transition_share(prev, lab)
         if prev == lab:
-            out.append(f"Flow: repeating {lab} keeps the harmony steady under a moving melody ({_pct(hit, tot)} of the time in {who}).")
+            strong = b.beat == 1
+            changed, total = stats.rhythm.get("strong" if strong else "weak", [0, 0])
+            rhythm = (f" {who} changes chord on {_pct(changed, total)} of {'strong' if strong else 'weak'} beats."
+                      if total else "")
+            out.append(f"Flow: repeating {lab} keeps the harmony steady under a moving melody.{rhythm}")
         else:
             out.append(f"Flow: after {prev}, {who} moves to {lab} {_pct(hit, tot)} of the time.")
     else:

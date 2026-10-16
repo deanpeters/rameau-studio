@@ -13,9 +13,9 @@ from PySide6.QtGui import QAction, QFont, QKeySequence
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QFileDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
-    QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QSplitter, QTabWidget, QTextBrowser, QToolBar,
-    QVBoxLayout, QWidget, QCompleter,
+    QApplication, QComboBox, QCompleter, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
+    QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit,
+    QPushButton, QSpinBox, QSplitter, QTabWidget, QTextBrowser, QToolBar, QVBoxLayout, QWidget,
 )
 
 from . import band
@@ -157,6 +157,9 @@ class MainWindow(QMainWindow):
         export.setShortcut(QKeySequence.Save)
         export.triggered.connect(self._export)
         tb.addAction(export)
+        ai_act = QAction("AI settings…", self)
+        ai_act.triggered.connect(self._ai_settings)
+        tb.addAction(ai_act)
 
         # a full-width hint explaining how the chosen style and sound fit together
         self.hint = QLabel()
@@ -251,14 +254,39 @@ class MainWindow(QMainWindow):
         self.melody_edit.setFont(mono)
         self.melody_edit.setPlaceholderText("Melody in ABC notation (or File ▸ Open a MusicXML/MIDI file)")
         self.melody_edit.textChanged.connect(lambda: setattr(self, "source_path", None) if self.melody_edit.hasFocus() else None)
-        left.addTab(self.melody_edit, "Melody")
+        mel_page = QWidget()
+        ml = QVBoxLayout(mel_page)
+        ml.setContentsMargins(0, 0, 0, 0)
+        ml.addWidget(self.melody_edit, 1)
+        ai_btn = QPushButton("✨ Compose a melody with AI…")
+        ai_btn.setToolTip("Optional: Claude writes a melody from your description (needs an API key)")
+        ai_btn.clicked.connect(self._ai_compose)
+        ml.addWidget(ai_btn)
+        left.addTab(mel_page, "Melody")
+
+        chord_page = QWidget()
+        cl2 = QVBoxLayout(chord_page)
+        cl2.setContentsMargins(0, 0, 0, 0)
         self.chord_edit = QPlainTextEdit()
         self.chord_edit.setFont(mono)
-        self.chord_edit.setPlainText("| Dm7 G7 | CM7 | Am7 D7 | Gm7 C7 |\n| FM7 | Bm7b5 E7 | Am | Am |")
-        left.addTab(self.chord_edit, "Chords")
+        self.chord_edit.setPlainText("| I vi | IV V7 | I IV | V I |\n| vi ii | V7/V V | I IV | V7 I |")
+        self.chord_edit.setToolTip("Chord symbols (| C Am | F G7 |) or Roman numerals (| I vi | IV V7 |). "
+                                   "One bar between bars lines or per line.")
+        cl2.addWidget(self.chord_edit, 1)
+        row = QHBoxLayout()
+        invent = QPushButton("🎲 Invent in this style")
+        invent.setToolTip("Let the chosen style write an 8-bar progression from its own habits")
+        invent.clicked.connect(self._invent)
+        row.addWidget(invent)
+        self.pattern_mode = QComboBox()
+        self.pattern_mode.addItems(["Compose melody + voices", "Band plays the chords only"])
+        row.addWidget(self.pattern_mode)
+        cl2.addLayout(row)
+        left.addTab(chord_page, "Chords")
         left.setMinimumWidth(320)
         self.input_tabs = left
-        left.currentChanged.connect(lambda i: self.go_btn.setText("Harmonize" if i == 0 else "Play chords"))
+        self.seed = 0
+        left.currentChanged.connect(lambda i: self.go_btn.setText("Harmonize" if i == 0 else "Compose"))
         split.addWidget(left)
 
         # centre: score / fingerprint
@@ -269,6 +297,25 @@ class MainWindow(QMainWindow):
         self.center.addTab(self.fp_view, "Style fingerprints")
         self.text_view = QTextBrowser()
         self.center.addTab(self.text_view, "Explanation / MMA")
+        tutor = QWidget()
+        tl = QVBoxLayout(tutor)
+        self.tutor_log = QTextBrowser()
+        self.tutor_log.setHtml("<p><b>Ask the tutor</b> about the piece on screen: <i>Why does Bach use V/V here? "
+                               "What would Palestrina do differently? Why is this cadence called authentic?</i></p>"
+                               "<p style='color:gray'>Optional AI mode: needs an Anthropic API key "
+                               "(AI settings…). Answers are grounded in Rameau's own analysis.</p>")
+        tl.addWidget(self.tutor_log, 1)
+        qrow = QHBoxLayout()
+        self.tutor_input = QLineEdit()
+        self.tutor_input.setPlaceholderText("Ask about this harmonization…")
+        self.tutor_input.returnPressed.connect(self._ask_tutor)
+        qrow.addWidget(self.tutor_input, 1)
+        ask = QPushButton("Ask")
+        ask.clicked.connect(self._ask_tutor)
+        qrow.addWidget(ask)
+        tl.addLayout(qrow)
+        self.center.addTab(tutor, "Ask the tutor (AI)")
+        self.tutor_history = []
         self._show_html('<div class="empty">Your harmonized score will appear here.</div>')
         split.addWidget(self.center)
 
@@ -349,6 +396,11 @@ class MainWindow(QMainWindow):
             job = Job(self.session.harmonize_melody, self.melody_edit.toPlainText(), style, key, snd, groove,
                       self.tempo.value(), self._title(), self.source_path)
             self.statusBar().showMessage(f"Harmonizing in {style.title} style…")
+        elif self.pattern_mode.currentIndex() == 0:
+            self.seed += 1
+            job = Job(self.session.generate_from_pattern, self.chord_edit.toPlainText(), style, key, snd, groove,
+                      self.tempo.value(), self.seed)
+            self.statusBar().showMessage(f"Composing a melody in {style.title} style (variation {self.seed})…")
         else:
             # A chord chart is played by a band; ensembles fall back to a band that suits the style.
             if snd is not None and snd.is_groove:
@@ -356,8 +408,8 @@ class MainWindow(QMainWindow):
             elif snd is not None:
                 band_sound = next((x for x in recommended(self._style_key()) if x.is_groove), None)
                 groove = band_sound.groove_for(4) if band_sound else "Hymn"
-                self.hint.setText(f"💡 Chord charts are played by a band, so this uses {groove}. "
-                                  "Four-voice writing from chords alone is coming.")
+                self.hint.setText(f"💡 'Band plays the chords only' needs a band, so this uses {groove}. "
+                                  "Choose 'Compose melody + voices' to hear the ensemble.")
             job = Job(self.session.play_chords, self.chord_edit.toPlainText(), groove, self.tempo.value())
             self.statusBar().showMessage(f"Building the band ({groove})…")
         self.go_btn.setEnabled(False)
@@ -461,6 +513,116 @@ class MainWindow(QMainWindow):
         self.fp_view.setHtml(f"<html><head>{PAGE_CSS}</head><body>{intro}"
                              f"{fingerprint_html(list(self.styles.values()))}</body></html>")
 
+    # ---------------------------------------------------------------- patterns
+    def _invent(self) -> None:
+        from .generate import invent_progression
+
+        style_key = self._style_key()
+        mode = "minor" if "minor" in self.key_box.currentText() else "major"
+        self.seed += 1
+        bars = invent_progression(self.styles[style_key], mode, 8, 4, seed=self.seed)
+        lines = []
+        for i in range(0, len(bars), 4):
+            cells = []
+            for bar in bars[i:i + 4]:
+                compact = [c for j, c in enumerate(bar) if j == 0 or c != bar[j - 1]]
+                cells.append(" ".join(compact))
+            lines.append("| " + " | ".join(cells) + " |")
+        self.chord_edit.setPlainText("\n".join(lines))
+        self.hint.setText(f"💡 Invented from {self.styles[style_key].title}'s own habits: its favourite moves, "
+                          "how often it changes chord, and how its phrases end. Press Compose to hear it.")
+
+    # ---------------------------------------------------------------- AI mode
+    def _ai_settings(self) -> None:
+        from . import ai
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("AI settings")
+        form = QFormLayout(dlg)
+        source = ai.key_source()
+        status = {"environment": "Using the ANTHROPIC_API_KEY environment variable.",
+                  "keychain": "Using the key saved in your system keychain.",
+                  None: "AI mode is off. Paste an Anthropic API key to turn it on."}[source]
+        form.addRow(QLabel(status))
+        key_edit = QLineEdit()
+        key_edit.setEchoMode(QLineEdit.Password)
+        key_edit.setPlaceholderText("sk-ant-… (stored in your system keychain, never in a file)")
+        form.addRow("API key", key_edit)
+        model_edit = QLineEdit(ai.model_name())
+        form.addRow("Model", model_edit)
+        form.addRow(QLabel("<small>Default: claude-haiku-5-5 (fast and inexpensive). Any Claude model name "
+                           "works.</small>"))
+        clear = QPushButton("Remove saved key")
+        clear.clicked.connect(lambda: (ai.clear_keychain_key(), clear.setText("Removed")))
+        form.addRow(clear)
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        if key_edit.text().strip():
+            try:
+                ai.save_key_to_keychain(key_edit.text())
+            except Exception as e:
+                QMessageBox.warning(self, "Rameau", f"Couldn't save the key to the keychain: {e}")
+        settings = ai.load_settings()
+        settings["ai_model"] = model_edit.text().strip() or ai.DEFAULT_MODEL
+        ai.save_settings(settings)
+        self.statusBar().showMessage(f"AI model: {settings['ai_model']}")
+
+    def _ai_compose(self) -> None:
+        from . import ai
+
+        text, ok = QInputDialog.getText(self, "Compose with AI", "Describe the melody you'd like:",
+                                        text="a gentle hymn tune in G major with two phrases")
+        if not ok:
+            return
+        style = self.styles[self._style_key()]
+        self.statusBar().showMessage("Asking the AI for a melody…")
+        job = Job(ai.compose_melody, text, style.title, 8)
+        job.signals.done.connect(self._ai_composed)
+        job.signals.failed.connect(lambda msg: QMessageBox.information(self, "AI mode", msg.split("\n\n")[0]))
+        self.pool.start(job)
+
+    @Slot(object)
+    def _ai_composed(self, result) -> None:
+        abc, description = result
+        self.melody_edit.setPlainText(abc)
+        self.source_path = None
+        self.session.locks.clear()
+        self.input_tabs.setCurrentIndex(0)
+        self.statusBar().showMessage(f"AI melody: {description}  Press Harmonize.")
+
+    def _ask_tutor(self) -> None:
+        from . import ai
+        from .fingerprint import fingerprint_markdown
+
+        q = self.tutor_input.text().strip()
+        if not q:
+            return
+        self.tutor_input.clear()
+        context = (self.result.explanation if self.result else "(No piece harmonized yet.)") + "\n\n" + \
+            fingerprint_markdown(list(self.styles.values()))
+        self.tutor_log.append(f"<p><b>You:</b> {html.escape(q)}</p>")
+        history = list(self.tutor_history)
+        job = Job(ai.ask_tutor, q, context, history)
+        job.signals.done.connect(lambda answer: self._tutor_answer(q, answer))
+        job.signals.failed.connect(lambda msg: self.tutor_log.append(
+            f"<p style='color:#b35'><b>AI mode:</b> {html.escape(msg.split(chr(10) * 2)[0])}</p>"))
+        self.pool.start(job)
+
+    def _tutor_answer(self, question: str, answer: str) -> None:
+        from .ai import TutorTurn
+
+        self.tutor_history += [TutorTurn("user", question), TutorTurn("assistant", answer)]
+        self.tutor_history = self.tutor_history[-12:]
+        self.tutor_log.append("<p><b>Tutor:</b></p>")
+        self.tutor_log.insertHtml("")
+        cursor = self.tutor_log.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.insertMarkdown(answer + "\n\n")
+
     # ---------------------------------------------------------------- playback
     def _toggle_play(self) -> None:
         if self.player.playbackState() == QMediaPlayer.PlayingState:
@@ -515,6 +677,9 @@ def main() -> int:
         if env.get("RAMEAU_SELFTEST_SOUND"):
             i = w.accomp_box.findText("   " + env["RAMEAU_SELFTEST_SOUND"])
             w.accomp_box.setCurrentIndex(i)
+        if env.get("RAMEAU_SELFTEST_TAB") == "chords":
+            w.input_tabs.setCurrentIndex(1)
+            w._invent()
         QTimer.singleShot(500, w._run)
         QTimer.singleShot(1200, lambda: w.chord_list.setCurrentRow(3))
         QTimer.singleShot(4000, lambda: snap(0, shot, lambda: snap(1, shot.replace(".png", "-fp.png"), app.quit)))
