@@ -385,7 +385,7 @@ class MainWindow(QMainWindow):
     def _run(self) -> None:
         if not self.go_btn.isEnabled():  # a job is already running
             return
-        self._stop()
+        self._release_audio()
         style = self.styles[self.style_box.currentData()]
         key = None if self.key_box.currentText() == "Auto" else self._key_arg(self.key_box.currentText())
         snd, groove = self._current_sound()
@@ -633,6 +633,12 @@ class MainWindow(QMainWindow):
     def _stop(self) -> None:
         self.player.stop()
 
+    def _release_audio(self) -> None:
+        """Stop playback and let go of the current audio file before a new one is made."""
+        self.player.stop()
+        self.player.setSource(QUrl())
+        self.play_btn.setEnabled(False)
+
     def _playback_changed(self, state) -> None:
         self.play_btn.setText("■ Stop" if state == QMediaPlayer.PlayingState else "▶ Play")
 
@@ -680,6 +686,18 @@ def main() -> int:
         if env.get("RAMEAU_SELFTEST_TAB") == "chords":
             w.input_tabs.setCurrentIndex(1)
             w._invent()
+        if env.get("RAMEAU_SELFTEST_REPEAT"):
+            # stress test: re-render while audio is playing (regression for the overwritten-WAV crash)
+            def cycle(n):
+                if n == 0:
+                    w.grab().save(shot)
+                    app.quit()
+                    return
+                w.player.play()
+                QTimer.singleShot(1500, lambda: (w._run(), QTimer.singleShot(6000, lambda: cycle(n - 1))))
+            QTimer.singleShot(500, w._run)
+            QTimer.singleShot(6000, lambda: cycle(int(env["RAMEAU_SELFTEST_REPEAT"])))
+            return app.exec()
         QTimer.singleShot(500, w._run)
         QTimer.singleShot(1200, lambda: w.chord_list.setCurrentRow(3))
         QTimer.singleShot(4000, lambda: snap(0, shot, lambda: snap(1, shot.replace(".png", "-fp.png"), app.quit)))

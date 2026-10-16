@@ -34,6 +34,22 @@ class Session:
     def __init__(self) -> None:
         self.workdir = Path(tempfile.mkdtemp(prefix="rameau-"))
         self.locks: dict[int, str] = {}
+        self._run = 0
+
+    def _next_run(self) -> None:
+        """Start a new render; delete files from renders older than the previous one."""
+        self._run += 1
+        for f in self.workdir.glob("*-*.*"):
+            try:
+                n = int(f.stem.rsplit("-", 1)[1])
+            except (IndexError, ValueError):
+                continue
+            if n < self._run - 1:
+                f.unlink(missing_ok=True)
+
+    def _new_file(self, stem: str, suffix: str = ".mid") -> Path:
+        """A fresh file per render, so audio being played is never overwritten underneath the player."""
+        return self.workdir / f"{stem}-{self._run}{suffix}"
 
     def harmonize_melody(self, melody_text: str, style: StyleModel, key: str | None = None,
                          sound: Sound | None = None, groove: str | None = None, tempo: int = 80,
@@ -65,7 +81,8 @@ class Session:
                 title: str) -> Result:
         r = realize(h)
         score = render.build_score(melody, h, r, title)
-        midi = self.workdir / "song.mid"
+        self._next_run()
+        midi = self._new_file("song")
         band_src = None
         ts = melody.recurse().getElementsByClass("TimeSignature").first()
         ts_text = ts.ratioString if ts else "4/4"
@@ -81,12 +98,12 @@ class Session:
             groove = groove or "Hymn"
             bars, pickup = band.bars_from_harmonization(h, r)
             band_src = band.mma_source(bars, groove, tempo, ts_text, title, pickup)
-            band.render_band(band_src, self.workdir / "band.mid")
+            band.render_band(band_src, self._new_file("band"))
             mel = copy.deepcopy(score)
             for p in list(mel.parts)[1:]:
                 mel.remove(p)
-            render.write_midi(mel, self.workdir / "melody.mid", bpm=tempo, program=None)
-            band.merge_midi(self.workdir / "band.mid", self.workdir / "melody.mid", midi,
+            render.write_midi(mel, self._new_file("melody"), bpm=tempo, program=None)
+            band.merge_midi(self._new_file("band"), self._new_file("melody"), midi,
                             overlay_program=melody_program)
         return Result(title, melody, h, r, score, midi, render.explanation_markdown(h, r, title),
                       render.to_svg_pages(score), band_src)
@@ -98,6 +115,7 @@ class Session:
         if not bars:
             raise ValueError("Type some chords, e.g. | Dm7 G7 | CM7 |")
         src = band.mma_source(bars, groove, tempo, time_signature, title)
-        midi = band.render_band(src, self.workdir / "song.mid")
+        self._next_run()
+        midi = band.render_band(src, self._new_file("song"))
         text = f"# {title}\n\nGroove: {groove}, {tempo} BPM\n\n```\n{src}\n```"
         return Result(title, None, None, None, None, midi, text, [], src)
