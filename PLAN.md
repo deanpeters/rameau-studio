@@ -131,6 +131,36 @@ rameau-studio/
 - FluidSynth native libraries are bundled per platform. This is the main packaging risk,
   so prove it in Milestone 0.
 
+## Built in session 1 (2026-10-15)
+
+Working on macOS, 16 tests passing, two local commits:
+
+- **Fingerprint engine:** learns chord vocabulary, moves, melody-over-chord, cadences and
+  inversions from a corpus (`train.py`). Styles shipped: Bach chorales (371), Palestrina
+  (400), Monteverdi (49), Classical (Mozart/Haydn/Beethoven).
+- **Harmonizer** (`harmonize.py`): HMM / Viterbi with forward-backward alternatives, chord
+  locking, plain-English reasons, including trade-offs ("IV is likelier here alone, but V/V
+  connects better").
+- **SATB voicing + rule checker** (`voicing.py`, `rules.py`): parallels, crossing, spacing,
+  ranges, leading tone, sevenths.
+- **Outputs** (`render.py`): MusicXML, MIDI, Verovio SVG notation, markdown explanation.
+- **Band** (`band.py`): chord chart or harmonization → MMA groove (1,167 grooves) with the
+  melody merged on top.
+- **Sound** (`audio.py`): FluidSynth + GeneralUser GS.
+- **Fingerprints** (`fingerprint.py`): side-by-side style comparison and signature moves.
+- **CLI** (`rameau harmonize | styles | fingerprint | train-folder`) and **desktop app**
+  (`rameau-studio`): melody/chord input, style/key/sound pickers, score, Why panel with
+  click-to-try alternatives, voice-leading check, fingerprint tab, play, export.
+
+Known limitations to address next:
+- Modal music (Palestrina, Monteverdi) is analysed as major/minor; add modal keys.
+- Phrase endings without fermatas are guessed from long notes.
+- Keys are analysed once per piece (no modulation tracking) in training and harmonizing.
+- Generating from a pattern (chords → melody + voices) is not built yet; chords currently
+  go to the MMA band only.
+- AI composer track not started.
+- Not yet tested on Windows/Linux; no installers yet.
+
 ## Milestones
 
 - **M0 — Three spikes on one shared small test set (≈1–2 weeks):**

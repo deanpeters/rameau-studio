@@ -250,6 +250,8 @@ class MainWindow(QMainWindow):
 
     # ---------------------------------------------------------------- run
     def _run(self) -> None:
+        if not self.go_btn.isEnabled():  # a job is already running
+            return
         self._stop()
         style = self.styles[self.style_box.currentData()]
         key = None if self.key_box.currentText() == "Auto" else self._key_arg(self.key_box.currentText())

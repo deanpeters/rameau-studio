@@ -151,20 +151,42 @@ def write_musicxml(score: stream.Score, path: Path) -> Path:
     return path
 
 
+# Verovio's font resources only work on the thread that first loaded them, so every render
+# goes through one dedicated thread that owns a single toolkit.
+_verovio_thread = None
+_verovio_tk = None
+
+
+def _verovio_render(xml: str, options: dict) -> list[str]:
+    global _verovio_tk
+    import verovio
+
+    if _verovio_tk is None:
+        _verovio_tk = verovio.toolkit()
+    tk = _verovio_tk
+    tk.setOptions(options)
+    if not tk.loadData(xml):
+        raise RuntimeError("Verovio could not read the score.")
+    return [tk.renderToSVG(i) for i in range(1, tk.getPageCount() + 1)]
+
+
 def to_svg_pages(score: stream.Score, width: int = 2100, scale: int = 40) -> list[str]:
     """Render notation with Verovio. Returns one SVG string per page."""
     import tempfile
+    from concurrent.futures import ThreadPoolExecutor
 
-    import verovio
-
+    global _verovio_thread
+    if _verovio_thread is None:
+        _verovio_thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="verovio")
     with tempfile.TemporaryDirectory() as d:
         xml = Path(d) / "score.musicxml"
         score.write("musicxml", fp=str(xml))
-        tk = verovio.toolkit()
-        tk.setOptions({"pageWidth": width, "scale": scale, "adjustPageHeight": True, "footer": "none",
-                       "header": "auto", "breaks": "auto", "lyricSize": 3.5})
-        tk.loadData(xml.read_text())
-        return [tk.renderToSVG(i) for i in range(1, tk.getPageCount() + 1)]
+        options = {"pageWidth": width, "scale": scale, "adjustPageHeight": True, "footer": "none",
+                   "header": "auto", "breaks": "auto", "lyricSize": 3.5}
+        pages = _verovio_thread.submit(_verovio_render, xml.read_text(), options).result()
+    if not pages:
+        raise RuntimeError("Verovio produced no pages.")
+    return pages
 
 
 def explanation_markdown(h: Harmonization, r: Realization, title: str) -> str:

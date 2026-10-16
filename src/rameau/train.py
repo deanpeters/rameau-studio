@@ -196,4 +196,4 @@ if __name__ == "__main__":
     m = train_bach(target) if which == "bach_chorale" else train_corpus_style(which, target)
     for mode, s in m.modes.items():
         print(f"{mode}: {sum(s.chord_counts.values())} chords, vocabulary {len(s.vocab)}: {s.vocab[:15]}")
-    print(f"saved {target} from {m.pieces} chorales")
+    print(f"saved {target} from {m.pieces} pieces")
