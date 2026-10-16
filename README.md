@@ -49,6 +49,10 @@ Train your own from a folder of scores or iReal Pro playlists: `rameau train-fol
   or let a style invent a progression; Rameau composes a melody and four voices in that style.
 - **Style + sound guidance**: each style recommends ensembles (choir + organ, string quartet,
   cornetts & sackbuts…) and explains unusual pairings.
+- **Live Filter unit and Mixer**: shape the music while it plays. Adventure, bass independence,
+  ornament density and kinds, variation, expression, rubato, swing, articulation, humanize, reverb, plus
+  per-part instrument, volume, pan, mute and solo. Mixer changes are instant; musical changes come in at the
+  next beat or bar. Presets included; save your own. Loop to keep tweaking a phrase.
 - **Step-entry editing**: type notes (A–G, durations 1–5) or click an on-screen piano; live sheet music.
 - **Open iReal Pro charts** in the Chords tab, shown as Roman numerals.
 - **Optional AI mode** (bring your own Anthropic API key): a tutor that answers questions about the

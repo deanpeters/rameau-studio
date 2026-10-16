@@ -121,26 +121,28 @@ LINE = {
 }
 
 
-def _transition_cost(p: Voicing, c: Voicing, leading_pc: int | None, prev_seventh: int | None) -> float:
+def _transition_cost(p: Voicing, c: Voicing, leading_pc: int | None, prev_seventh: int | None,
+                     line: dict | None = None) -> float:
+    LINE_ = line or LINE
     cost = 0.0
     # smoothness: big jumps in inner voices are awkward (but moving by step is welcome)
     for i in (1, 2):
         d = abs(c[i] - p[i])
-        cost += 0.6 * d if d > 2 else (LINE["inner_step"] if d in (1, 2) else 0.0)
+        cost += 0.6 * d if d > 2 else (LINE_["inner_step"] if d in (1, 2) else 0.0)
     # the bass as a line
     bd = c[3] - p[3]
     if bd == 0:
-        cost += LINE["bass_static"]
+        cost += LINE_["bass_static"]
     elif abs(bd) <= 2:
-        cost += LINE["bass_step"]
+        cost += LINE_["bass_step"]
     else:
         cost += 0.15 * abs(bd)
     sd = c[0] - p[0]
     if sd and bd:
-        cost += LINE["contrary_outer"] if sd * bd < 0 else LINE["similar_outer"]
+        cost += LINE_["contrary_outer"] if sd * bd < 0 else LINE_["similar_outer"]
     dirs = [c[i] - p[i] for i in range(4)]
     if all(d > 0 for d in dirs) or all(d < 0 for d in dirs):
-        cost += LINE["all_same_dir"]
+        cost += LINE_["all_same_dir"]
     for i in range(4):
         for j in range(i + 1, 4):
             if p[i] == c[i] or p[j] == c[j]:
@@ -179,7 +181,13 @@ def _soprano_shift(midis: list[int]) -> int:
     return best
 
 
-def realize(h: Harmonization) -> Realization:
+def line_weights(bass_independence: float = 1.0) -> dict:
+    """Scale the "independent lines" rewards: 0 = plain block-chord bass, 1 = default, 2 = very melodic."""
+    k = max(0.0, bass_independence)
+    return {key: (v * k if key != "inner_step" else v) for key, v in LINE.items()}
+
+
+def realize(h: Harmonization, bass_independence: float = 1.0) -> Realization:
     k = h.key
     stats = h.style.mode(k.mode)
     leading_pc = (k.tonic.pitchClass + 11) % 12
@@ -207,6 +215,7 @@ def realize(h: Harmonization) -> Realization:
     # leading-tone check applies when the next chord contains the tonic (a resolution)
     lt_into = [None] + [leading_pc if tonic_pc in tones[t].pcs else None for t in range(1, len(tones))]
 
+    line = line_weights(bass_independence)
     T = len(cands)
     cost = [c for c, _, _ in cands[0]]
     back: list[list[int]] = []
@@ -219,7 +228,7 @@ def realize(h: Harmonization) -> Realization:
                 if pv == cv:
                     total = cost[i]  # holding the same voicing is free
                 else:
-                    total = cost[i] + _transition_cost(pv, cv, lt_into[t], prev_sev)
+                    total = cost[i] + _transition_cost(pv, cv, lt_into[t], prev_sev, line)
                 if total < best:
                     best, best_i = total, i
             new.append(best + c_cost)

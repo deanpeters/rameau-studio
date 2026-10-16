@@ -312,13 +312,22 @@ class MainWindow(QMainWindow):
         self.styles = {name: load_style(name) for name in sorted(builtin_styles())}
         self.source_path: Path | None = None
 
-        self.player = QMediaPlayer(self)
+        from .livesynth import LiveSynth, Player
+
+        self.live = LiveSynth.create()                     # FluidSynth as a live instrument, if available
+        self.live_player = Player(self.live) if self.live else None
+        if self.live:
+            QApplication.instance().aboutToQuit.connect(self._shutdown_live)
+        self._update_running = False
+        self._pending_controls = None
+        self.player = QMediaPlayer(self)                   # fallback: render a file and play it
         self.audio_out = QAudioOutput(self)
         self.player.setAudioOutput(self.audio_out)
         self.player.playbackStateChanged.connect(self._playback_changed)
 
         self._build_toolbar()
         self._build_body()
+        self._build_filter_dock()
         self._fill_sounds()
         self._refresh_ai_bar()
         self._load_models()
@@ -384,18 +393,6 @@ class MainWindow(QMainWindow):
         self.groove_names = {g.name.lower(): g.name for g in self.grooves}
         tb.addWidget(self.accomp_box)
 
-        tb.addWidget(QLabel(" Adventure "))
-        from PySide6.QtWidgets import QSlider
-
-        self.adventure = QSlider(Qt.Horizontal)
-        self.adventure.setRange(0, 100)
-        self.adventure.setValue(0)
-        self.adventure.setFixedWidth(90)
-        self.adventure.setToolTip("0 = the style's safest, most typical chords. Higher = sample less obvious chords "
-                                  "the style really uses (secondary dominants, deceptive cadences...). "
-                                  "Each Harmonize gives a new variation.")
-        tb.addWidget(self.adventure)
-
         tb.addWidget(QLabel(" Tempo "))
         self.tempo = QSpinBox()
         self.tempo.setRange(30, 240)
@@ -407,10 +404,22 @@ class MainWindow(QMainWindow):
         self.go_btn.setDefault(True)
         self.go_btn.clicked.connect(self._run)
         tb.addWidget(self.go_btn)
+        self.rewind_btn = QPushButton("⏮")
+        self.rewind_btn.setToolTip("Back to the start")
+        self.rewind_btn.clicked.connect(self._rewind)
+        tb.addWidget(self.rewind_btn)
         self.play_btn = QPushButton("▶ Play")
         self.play_btn.clicked.connect(self._toggle_play)
         self.play_btn.setEnabled(False)
         tb.addWidget(self.play_btn)
+        from PySide6.QtWidgets import QCheckBox
+
+        self.loop_box = QCheckBox("Loop")
+        self.loop_box.setToolTip("Keep playing round, so you can shape the music with the Filter unit as it plays")
+        self.loop_box.toggled.connect(self._loop_toggled)
+        tb.addWidget(self.loop_box)
+        self.pos_label = QLabel(" 0:00 ")
+        tb.addWidget(self.pos_label)
 
         export = QAction("Export…", self)
         export.setShortcut(QKeySequence.Save)
@@ -652,6 +661,40 @@ class MainWindow(QMainWindow):
         cl.addWidget(split, 1)
         self.setCentralWidget(central)
 
+    def _build_filter_dock(self) -> None:
+        from PySide6.QtWidgets import QDockWidget
+
+        from .filterunit import FilterUnit, MixerPanel
+
+        self.filter = FilterUnit()
+        self.filter.changed.connect(self._controls_changed)
+        self.mixer = MixerPanel()
+        self.mixer.channelChanged.connect(self._mixer_changed)
+        from PySide6.QtWidgets import QScrollArea
+
+        body = QWidget()
+        row = QHBoxLayout(body)
+        row.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self.filter)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        row.addWidget(scroll, 3)
+        self.mixer.setMinimumWidth(470)
+        self.mixer.setMaximumWidth(620)
+        row.addWidget(self.mixer, 2)
+        dock = QDockWidget("Filter unit & mixer", self)
+        dock.setObjectName("filter-dock")
+        dock.setWidget(body)
+        dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
+        self.addDockWidget(Qt.BottomDockWidgetArea, dock)
+        QTimer.singleShot(0, lambda: self.resizeDocks([dock], [290], Qt.Vertical))
+        self.tempo.valueChanged.connect(lambda v: self.filter._set("tempo", v))
+        self._pos_timer = QTimer(self)
+        self._pos_timer.setInterval(200)
+        self._pos_timer.timeout.connect(self._tick)
+        self._pos_timer.start()
+
     # ---------------------------------------------------------------- input
     def _load_sample(self, name: str) -> None:
         self.melody_edit.setPlainText((SAMPLES / name).read_text(encoding="utf-8"))
@@ -695,12 +738,12 @@ class MainWindow(QMainWindow):
             return
         if self.input_tabs.currentIndex() in (0, 1):  # Melody (ABC) or Step entry
             job = Job(self.session.harmonize_melody, self.melody_edit.toPlainText(), style, key, snd, groove,
-                      self.tempo.value(), self._title(), self.source_path, self.adventure.value() / 100)
+                      self.tempo.value(), self._title(), self.source_path, None, self._controls())
             self.statusBar().showMessage(f"Harmonizing in {style.title} style…")
         elif self.pattern_mode.currentIndex() == 0:
             self.seed += 1
             job = Job(self.session.generate_from_pattern, self.chord_edit.toPlainText(), style, key, snd, groove,
-                      self.tempo.value(), self.seed)
+                      self.tempo.value(), self.seed, "From a chord pattern", self._controls())
             self.statusBar().showMessage(f"Composing a melody in {style.title} style (variation {self.seed})…")
         else:
             # A chord chart is played by a band; ensembles fall back to a band that suits the style.
@@ -734,6 +777,14 @@ class MainWindow(QMainWindow):
             self._show_html(f'<pre>{html.escape(result.band_source or "")}</pre>')
         self.text_view.setMarkdown(result.explanation)
         self._fill_chords()
+        if self.live_player is not None and result.program is not None:
+            self.live_player.stop()
+            self.live_player.load(result.program)
+            self._loop_toggled(self.loop_box.isChecked())
+            self.mixer.set_program(self.live_player.program)
+            self.play_btn.setEnabled(True)
+            self._ready_message()
+            return
         self.statusBar().showMessage("Rendering sound…")
         job = Job(render_wav, result.midi, result.midi.with_suffix(".wav"))
         job.signals.done.connect(self._audio_ready)
@@ -750,6 +801,9 @@ class MainWindow(QMainWindow):
     def _audio_ready(self, wav: Path) -> None:
         self.player.setSource(QUrl.fromLocalFile(str(wav)))
         self.play_btn.setEnabled(True)
+        self._ready_message()
+
+    def _ready_message(self) -> None:
         h = self.result.harmonization if self.result else None
         if h:
             errs = sum(1 for f in self.result.realization.findings if f.severity == "error")
@@ -990,24 +1044,112 @@ class MainWindow(QMainWindow):
         cursor.movePosition(cursor.MoveOperation.End)
         cursor.insertMarkdown(answer + "\n\n")
 
+    # ---------------------------------------------------------------- live controls
+    def _controls(self):
+        import dataclasses
+
+        return dataclasses.replace(self.filter.controls, tempo=self.tempo.value())
+
+    def _controls_changed(self, controls) -> None:
+        """A Filter unit change: re-run only the stages it affects and swap the result in while playing."""
+        if self.session.piece is None:
+            self.session.controls = controls
+            return
+        if self._update_running:
+            self._pending_controls = controls
+            return
+        self._update_running = True
+        job = Job(self.session.update, controls)
+        job.signals.done.connect(self._updated)
+        job.signals.failed.connect(lambda msg: (setattr(self, "_update_running", False),
+                                                self.statusBar().showMessage(f"Couldn't apply: {msg.splitlines()[0]}")))
+        self.start_job(job)
+
+    @Slot(object)
+    def _updated(self, result) -> None:
+        self._update_running = False
+        if result is not None:
+            self.result = result
+            stage = result.stage
+            if self.live_player is not None and result.program is not None:
+                if stage is None:  # mixer-only (reverb)
+                    reverb = round(127 * self.session.controls.reverb)
+                    for ch in list(self.live_player.program.channels):
+                        self.live_player.set_channel(ch, reverb=reverb)
+                else:
+                    when = self.live_player.swap(result.program, at="now" if stage == "performance" else "bar")
+                    self.statusBar().showMessage(f"Updated {stage} · heard from {int(when // 60)}:{when % 60:04.1f}")
+            elif stage is not None:
+                self._release_audio()
+                job = Job(render_wav, result.midi, result.midi.with_suffix(".wav"))
+                job.signals.done.connect(self._audio_ready)
+                self.start_job(job)
+            if stage in ("harmony", "lines", "texture") and result.svg_pages:
+                self._show_html("".join(f'<div class="page">{svg}</div>' for svg in result.svg_pages))
+                self.text_view.setMarkdown(result.explanation)
+            if stage in ("harmony", "lines"):
+                self._fill_chords()
+        if self._pending_controls is not None:
+            pending, self._pending_controls = self._pending_controls, None
+            self._controls_changed(pending)
+
+    def _mixer_changed(self, ch: int, changes: dict) -> None:
+        if self.live_player is not None:
+            self.live_player.set_channel(ch, **changes)
+
+    def _shutdown_live(self) -> None:
+        if self.live_player is not None:
+            self.live_player.stop()
+        if self.live is not None:
+            self.live.close()
+
+    def _tick(self) -> None:
+        if self.live_player is None:
+            return
+        playing = self.live_player.playing
+        self.play_btn.setText("■ Stop" if playing else "▶ Play")
+        pos = self.live_player.position()
+        self.pos_label.setText(f" {int(pos // 60)}:{int(pos % 60):02d} ")
+
+    def _loop_toggled(self, on: bool) -> None:
+        if self.live_player is not None and self.live_player.program is not None:
+            self.live_player.loop = (0.0, self.live_player.program.length) if on else None
+
+    def _rewind(self) -> None:
+        if self.live_player is not None:
+            self.live_player.rewind()
+        else:
+            self.player.setPosition(0)
+
     # ---------------------------------------------------------------- playback
     def _toggle_play(self) -> None:
+        if self.live_player is not None:
+            if self.live_player.playing:
+                self.live_player.stop()
+            else:
+                self.live_player.play()
+            return
         if self.player.playbackState() == QMediaPlayer.PlayingState:
             self._stop()
         else:
             self.player.play()
 
     def _stop(self) -> None:
+        if self.live_player is not None:
+            self.live_player.stop()
         self.player.stop()
 
     def _release_audio(self) -> None:
         """Stop playback and let go of the current audio file before a new one is made."""
+        if self.live_player is not None:
+            self.live_player.stop()
         self.player.stop()
         self.player.setSource(QUrl())
         self.play_btn.setEnabled(False)
 
     def _playback_changed(self, state) -> None:
-        self.play_btn.setText("■ Stop" if state == QMediaPlayer.PlayingState else "▶ Play")
+        if self.live_player is None:
+            self.play_btn.setText("■ Stop" if state == QMediaPlayer.PlayingState else "▶ Play")
 
     def _export(self) -> None:
         if not self.result:
@@ -1017,10 +1159,19 @@ class MainWindow(QMainWindow):
             return
         out = Path(folder)
         stem = self._title().replace(" ", "_").lower()
-        shutil.copy(self.result.midi, out / f"{stem}.mid")
-        wav = self.result.midi.with_suffix(".wav")
-        if wav.exists():
-            shutil.copy(wav, out / f"{stem}.wav")
+        if self.live_player is not None and self.live_player.program is not None:
+            from .performance import write_midi
+
+            write_midi(self.live_player.program, out / f"{stem}.mid")  # includes your mixer settings
+            try:
+                render_wav(out / f"{stem}.mid", out / f"{stem}.wav")
+            except Exception as e:
+                self.statusBar().showMessage(f"Exported without WAV: {e}")
+        else:
+            shutil.copy(self.result.midi, out / f"{stem}.mid")
+            wav = self.result.midi.with_suffix(".wav")
+            if wav.exists():
+                shutil.copy(wav, out / f"{stem}.wav")
         (out / f"{stem}.md").write_text(self.result.explanation, encoding="utf-8")
         if self.result.score is not None:
             from .render import write_musicxml
@@ -1062,6 +1213,20 @@ def main() -> int:
         if env.get("RAMEAU_SELFTEST_TAB") == "chords":
             w.input_tabs.setCurrentIndex(2)
             w._invent()
+        if env.get("RAMEAU_SELFTEST_LIVE"):
+            import dataclasses
+
+            def live_changes():
+                w.filter.set_controls(dataclasses.replace(w.filter.controls, ornament_density=1.8, expression=1.6))
+                organ = [ch for ch, c in w.live_player.program.channels.items() if c.program == 19]
+                for ch in organ:
+                    w._mixer_changed(ch, {"mute": True})
+            QTimer.singleShot(500, w._run)
+            QTimer.singleShot(4000, w._toggle_play)
+            QTimer.singleShot(5500, live_changes)
+            QTimer.singleShot(9500, lambda: (w.grab().save(shot), print("live:", w.statusBar().currentMessage(),
+                                                                         flush=True), app.quit()))
+            return app.exec()
         if env.get("RAMEAU_SELFTEST_REPEAT"):
             # stress test: re-render while audio is playing (regression for the overwritten-WAV crash)
             def cycle(n):
@@ -1069,7 +1234,7 @@ def main() -> int:
                     w.grab().save(shot)
                     app.quit()
                     return
-                w.player.play()
+                w._toggle_play() if not (w.live_player and w.live_player.playing) else None
                 QTimer.singleShot(1500, lambda: (w._run(), QTimer.singleShot(6000, lambda: cycle(n - 1))))
             QTimer.singleShot(500, w._run)
             QTimer.singleShot(6000, lambda: cycle(int(env["RAMEAU_SELFTEST_REPEAT"])))

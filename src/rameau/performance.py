@@ -37,14 +37,16 @@ class Style:
     accent: int = 7            # strong-beat emphasis
     humanize_ms: float = 7.0
     humanize_vel: int = 3
-    swing: bool = False        # play written eighths long-short (off-beats at 2/3 of the beat)
+    swing: bool = False        # play written eighths long-short
+    swing_ratio: float = 2 / 3 # where the off-beat eighth falls (0.5 = straight, 2/3 = triplet swing)
+    articulation: float = 0.0  # -1 = very legato ... 0 = natural ... +1 = very detached
 
 
-def _swing(q: float) -> float:
-    """Swing feel: an eighth note on the off-beat sounds at 2/3 of the beat instead of 1/2."""
+def _swing(q: float, ratio: float = 2 / 3) -> float:
+    """Swing feel: an eighth note on the off-beat sounds at ``ratio`` of the beat instead of 1/2."""
     base = float(int(q // 1))
     f = q - base
-    return base + (f * 4 / 3 if f <= 0.5 else 2 / 3 + (f - 0.5) * 2 / 3)
+    return base + (f * ratio / 0.5 if f <= 0.5 else ratio + (f - 0.5) * (1 - ratio) / 0.5)
 
 
 def _beat_map(h, bpm: int, style: Style) -> tuple[list[float], list[float]]:
@@ -94,12 +96,16 @@ def _phrase_arc(h) -> list[int]:
     return [round(a, 3) for a in arc]
 
 
-def perform(score, h, voices, bpm: int, path: Path, style: Style | None = None, seed: int = 1,
-            levels: dict[int, int] | None = None) -> Path:
-    """Write an expressive MIDI file. ``voices[i]`` lists General MIDI programs for part i (doubling allowed).
-    ``levels`` overrides the loudness of each part (default: soprano, alto, tenor, bass)."""
-    levels = levels or VOICE_LEVEL
+def performance_program(score, h, voices, bpm: int, style: Style | None = None, seed: int = 1,
+                        levels: dict[int, int] | None = None):
+    """The performed notes, in seconds, ready for the live player or for writing to MIDI.
+
+    ``voices[i]`` lists General MIDI programs for part i (several = doubling); each gets its own channel.
+    """
+    from .livesynth import Channel, NoteEvent, Program
+
     style = style or Style()
+    levels = levels or VOICE_LEVEL
     rng = random.Random(seed)
     spq = 60.0 / bpm
     q_points, s_points = _beat_map(h, bpm, style)
@@ -108,11 +114,7 @@ def perform(score, h, voices, bpm: int, path: Path, style: Style | None = None, 
     strong = {c.beat.offset for c in h.choices if c.beat.beat == 1}
     medium = {c.beat.offset for c in h.choices if c.beat.beat == 3}
 
-    mf = mido.MidiFile(type=1, ticks_per_beat=TICKS)
-    meta = mido.MidiTrack()
-    meta.append(mido.MetaMessage("set_tempo", tempo=1_000_000, time=0))  # 60 BPM: 1 beat = 1 second
-    mf.tracks.append(meta)
-
+    notes_out, channels = [], {}
     channel = 0
     for part_index, part in enumerate(score.parts):
         notes = [n for n in part.flatten().notes if n.quarterLength > 0]
@@ -120,10 +122,12 @@ def perform(score, h, voices, bpm: int, path: Path, style: Style | None = None, 
         for dbl, program in enumerate(programs):
             if channel == 9:
                 channel += 1  # channel 10 is drums
-            events = []
+            name = part.partName or f"Part {part_index + 1}"
+            channels[channel] = Channel(name if dbl == 0 else f"{name} (doubling)", program,
+                                        volume=100 if dbl == 0 else 90)
             for k, n in enumerate(notes):
                 q0, q1 = float(n.offset), float(n.offset + n.quarterLength)
-                w0, w1 = (_swing(q0), _swing(q1)) if style.swing else (q0, q1)
+                w0, w1 = (_swing(q0, style.swing_ratio), _swing(q1, style.swing_ratio)) if style.swing else (q0, q1)
                 t0 = _to_seconds(w0, q_points, s_points, spq)
                 t1 = _to_seconds(w1, q_points, s_points, spq)
                 nxt = notes[k + 1] if k + 1 < len(notes) else None
@@ -132,9 +136,10 @@ def perform(score, h, voices, bpm: int, path: Path, style: Style | None = None, 
                 gap = 0.07 if same_next else 0.02
                 if part_index > 0 and n.quarterLength <= 1 and style.swing is False and len(n.pitches) > 1:
                     gap = max(gap, 0.25 * (t1 - t0))  # keyboard chords in pop and Latin are played detached
+                gap += max(0.0, style.articulation) * 0.45 * (t1 - t0)  # detached playing shortens every note
                 if k > 0 or q0 > beat_starts[0]:
                     t0 += rng.uniform(-style.humanize_ms, style.humanize_ms) / 1000
-                t1 = max(t0 + 0.05, t1 - gap)
+                t1 = max(t0 + 0.05, t1 - gap * (1 - max(0.0, -style.articulation)))
                 bi = max(0, bisect.bisect_right(beat_starts, q0) - 1)
                 vel = levels.get(part_index, 64) + round(arc[bi] * style.swell)
                 if q0 in strong:
@@ -146,23 +151,47 @@ def perform(score, h, voices, bpm: int, path: Path, style: Style | None = None, 
                 vel += rng.randint(-style.humanize_vel, style.humanize_vel) - dbl * DOUBLING_DROP
                 vel = max(20, min(118, vel))
                 for p in n.pitches:
-                    events.append((t0, 1, p.midi, vel))
-                    events.append((t1, 0, p.midi, 0))
-            track = mido.MidiTrack()
-            track.append(mido.Message("program_change", channel=channel, program=program, time=0))
-            track.append(mido.Message("control_change", channel=channel, control=91, value=40, time=0))  # reverb
-            track.append(mido.Message("control_change", channel=channel, control=93, value=0, time=0))   # chorus
-            last = 0
-            for t, on, pitch, vel in sorted(events, key=lambda e: (e[0], e[1])):
-                tick = max(0, int(round(max(0.0, t) * TICKS)))
-                kind = "note_on" if on else "note_off"
-                track.append(mido.Message(kind, channel=channel, note=pitch, velocity=vel if on else 0,
-                                          time=tick - last))
-                last = tick
-            mf.tracks.append(track)
+                    notes_out.append(NoteEvent(max(0.0, t0), max(0.0, t1), channel, p.midi, vel))
             channel = min(15, channel + 1)
+    notes_out.sort()
+    measures = list(score.parts[0].getElementsByClass("Measure")) if score.parts else []
+    bar_times = sorted({_to_seconds(_swing(float(m.offset), style.swing_ratio) if style.swing else float(m.offset),
+                                    q_points, s_points, spq) for m in measures})
+    length = max((n.end for n in notes_out), default=0.0) + 0.5
+    return Program(notes_out, channels, bar_times, length)
+
+
+def write_midi(program, path: Path) -> Path:
+    """Write a performed Program to a MIDI file (fixed 60 BPM map: one beat = one second)."""
+    mf = mido.MidiFile(type=1, ticks_per_beat=TICKS)
+    meta = mido.MidiTrack()
+    meta.append(mido.MetaMessage("set_tempo", tempo=1_000_000, time=0))
+    mf.tracks.append(meta)
+    for ch, c in sorted(program.channels.items()):
+        track = mido.MidiTrack()
+        track.append(mido.Message("program_change", channel=ch, program=c.program, time=0))
+        for ctrl, value in ((7, 0 if c.mute else c.volume), (10, c.pan), (91, c.reverb), (93, 0)):
+            track.append(mido.Message("control_change", channel=ch, control=ctrl, value=value, time=0))
+        events = []
+        for n in program.notes:
+            if n.channel == ch:
+                events.append((n.start, 1, n.pitch, n.velocity))
+                events.append((n.end, 0, n.pitch, 0))
+        last = 0
+        for t, on, pitch, vel in sorted(events, key=lambda e: (e[0], e[1])):
+            tick = int(round(t * TICKS))
+            track.append(mido.Message("note_on" if on else "note_off", channel=ch, note=pitch,
+                                      velocity=vel if on else 0, time=tick - last))
+            last = tick
+        mf.tracks.append(track)
     mf.save(str(path))
     return Path(path)
+
+
+def perform(score, h, voices, bpm: int, path: Path, style: Style | None = None, seed: int = 1,
+            levels: dict[int, int] | None = None) -> Path:
+    """Write an expressive MIDI file (see ``performance_program``)."""
+    return write_midi(performance_program(score, h, voices, bpm, style, seed, levels), path)
 
 
 def melody_style_from(h) -> Style:

@@ -89,7 +89,8 @@ def _diatonic_step(a: int, direction: int, scale: set[int]) -> int | None:
     return None
 
 
-def _learned_ornaments(h: Harmonization, r: Realization, ev, scale: set[int], seed: int) -> bool:
+def _learned_ornaments(h: Harmonization, r: Realization, ev, scale: set[int], seed: int,
+                       density: float = 1.0, kinds=None) -> bool:
     """Ornament the lower voices at the rates the style's own corpus uses them. Returns False when the
     style has no ornament data (e.g. styles learned from chord charts)."""
     import random
@@ -100,6 +101,12 @@ def _learned_ornaments(h: Harmonization, r: Realization, ev, scale: set[int], se
     rng = random.Random(seed)
     V = r.voicings
     T = len(V)
+    kinds = set(kinds) if kinds is not None else {"passing", "neighbor", "anticipation", "arpeggio", "suspension"}
+
+    def rate(voice, kind):
+        p = stats.p_ornament(voice, kind)
+        return None if p is None or kind not in kinds else min(1.0, p * density)
+
     for t in range(T - 1):
         b = h.choices[t].beat
         if b.duration < 1 or b.phrase_end:
@@ -115,16 +122,16 @@ def _learned_ornaments(h: Harmonization, r: Realization, ev, scale: set[int], se
             options = []  # (probability, kind, second-half note)
             mid = _passing_note(a, n, scale)
             if mid is not None:
-                options.append((stats.p_ornament(name, "passing"), "passing", mid))
+                options.append((rate(name, "passing"), "passing", mid))
             if a == n:
                 step = _diatonic_step(a, -1 if rng.random() < 0.6 else 1, scale)
                 if step is not None:
-                    options.append((stats.p_ornament(name, "neighbor"), "neighbor", step))
+                    options.append((rate(name, "neighbor"), "neighbor", step))
             if a != n:
-                options.append((stats.p_ornament(name, "anticipation"), "anticipation", n))
+                options.append((rate(name, "anticipation"), "anticipation", n))
             arps = [x for x in range(a - 7, a + 8) if x % 12 in chord_pcs and x not in (a, n) and abs(x - a) > 2]
             if arps:
-                options.append((stats.p_ornament(name, "arpeggio"), "arpeggio", rng.choice(arps)))
+                options.append((rate(name, "arpeggio"), "arpeggio", rng.choice(arps)))
             for p, kind, x in options:
                 if p is None or rng.random() >= p or _parallel_risk(V, t, v, x):
                     continue
@@ -138,7 +145,7 @@ def _learned_ornaments(h: Harmonization, r: Realization, ev, scale: set[int], se
                 if len(ev[v][t]) != 1:
                     continue
                 prev, cur = V[t - 1][v], V[t][v]
-                p = stats.p_ornament(VOICE_KEYS[v], "suspension")
+                p = rate(VOICE_KEYS[v], "suspension")
                 if p and prev - cur in (1, 2) and rng.random() < p:
                     d = ev[v][t][0].dur / 2
                     ev[v][t] = [Event(0.0, d, prev, True), Event(d, d, cur, False)]
@@ -146,7 +153,8 @@ def _learned_ornaments(h: Harmonization, r: Realization, ev, scale: set[int], se
     return True
 
 
-def apply_texture(h: Harmonization, r: Realization, texture: Texture, seed: int = 1) -> list[list[list[Event]]]:
+def apply_texture(h: Harmonization, r: Realization, texture: Texture, seed: int = 1, density: float = 1.0,
+                  kinds=None) -> list[list[list[Event]]]:
     """events[voice][beat] -> notes for voices 1..3 (alto, tenor, bass). Index 0 (soprano) is empty."""
     T = len(h.choices)
     scale = _scale_pcs(h.key)
@@ -166,8 +174,8 @@ def apply_texture(h: Harmonization, r: Realization, texture: Texture, seed: int 
 
     # Ornaments learned from the style's corpus (passing, neighbor, anticipation, arpeggio, suspension),
     # used at the corpus's own rates. Fall back to the simple rule-based passing notes otherwise.
-    learned = texture.key in LEARNED_TEXTURES and _learned_ornaments(h, r, ev, scale, seed)
-    if texture.passing and not learned:
+    learned = texture.key in LEARNED_TEXTURES and _learned_ornaments(h, r, ev, scale, seed, density, kinds)
+    if texture.passing and not learned and density > 0 and (kinds is None or "passing" in kinds):
         for t in range(T - 1):
             if h.choices[t].beat.duration < 1 or h.choices[t + 1].beat.phrase_end and texture.suspensions:
                 continue
@@ -184,7 +192,7 @@ def apply_texture(h: Harmonization, r: Realization, texture: Texture, seed: int 
 
     # Cadential 4-3 suspension: the note above the leading tone is held into the dominant chord,
     # then resolves down a step.
-    if texture.suspensions:
+    if texture.suspensions and density > 0 and (kinds is None or "suspension" in kinds):
         k = h.key
         for t in range(2, T):
             c = h.choices[t]
